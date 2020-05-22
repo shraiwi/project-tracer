@@ -14,5 +14,6 @@
     "hkdf.h": "c",
     "config.h": "c"
   },
-  "idf.adapterTargetName": "esp32"
+  "idf.adapterTargetName": "esp32",
+  "cmake.configureOnOpen": false
 }

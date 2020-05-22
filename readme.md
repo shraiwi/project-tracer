@@ -6,7 +6,7 @@ An Open Source, ESP32-based contact tracing beacon!
 
 Well, here we are again.
 
-This is an open-source contact tracing API designed from the ground-up based off of the Google x Apple standard (see it [**here**]([Privacy-Preserving Contact Tracing - Apple and Google](https://www.apple.com/covid19/contacttracing))). It aims to provide a lower-cost option for contact tracing for those who do not have cellphones, or those whose cellphones don't support it. In the end, I plan on it being implemented into a device (keychain-sized) which could easily fit into someone's pocket.
+This is an open-source contact tracing API designed from the ground-up based off of the Google x Apple standard (see it [**here**](https://www.apple.com/covid19/contacttracing)). It aims to provide a lower-cost option for contact tracing for those who do not have cellphones, or those whose cellphones don't support it. In the end, I plan on it being implemented into a device (keychain-sized) which could easily fit into someone's pocket.
 
 ## Project Log
 

@@ -11,6 +11,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "time.h"
+
 #include "esp_sleep.h"
 
 #include "ble_adapter.h"
@@ -39,6 +41,15 @@ void app_main(void)
     gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);
 
     printf("esp booted!\n");
+
+    uint8_t * new_mac = rng_gen(6, NULL);
+
+    ESP_ERROR_CHECK(esp_base_mac_addr_get(new_mac));
+    printf("mac address set to: ");
+    print_hex_buffer(new_mac, 6);
+    printf("\n");
+
+    free(new_mac);
 
     /*uint8_t * hash = NULL;
     uint8_t * zeroes = NULL;

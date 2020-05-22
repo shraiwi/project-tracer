@@ -9,6 +9,9 @@
         "${config:idf.espIdfPathWin}/components/**",
         "${workspaceFolder}/**"
       ],
+      "forcedInclude": [
+        "${workspaceFolder}/build/config/sdkconfig.h"
+      ],
       "browse": {
         "path": [
           "${config:idf.espIdfPath}/components",
