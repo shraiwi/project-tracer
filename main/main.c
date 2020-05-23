@@ -6,27 +6,22 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
-#include <stdio.h>
+
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "time.h"
-
 #include "esp_sleep.h"
+#include "esp_task_wdt.h"
+
+#include "stdio.h"
+#include "time.h"
 
 #include "ble_adapter.h"
 #include "tracer.h"
 
-#define LED_BUILTIN 2
-
-char hash_str[] = "hello";
-// w/o null terminator, is 16 bytes
-char hash_str_block[] = "hello world!!!!!";
-
-// 7f c4 2a 88 36 a1 92 34 3d f5 9a 95 81 e7 cf 97
-uint8_t crypt_key[] = { 0x7f, 0xc4, 0x2a, 0x88, 0x36, 0xa1, 0x92, 0x34, 0x3d, 0xf5, 0x9a, 0x95, 0x81, 0xe7, 0xcf, 0x97 };
-//uint8_t zeroes[]    = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+#define LED_BUILTIN         2
+#define WATCHDOG_TIMEOUT    1000
 
 void print_hex_buffer(void * data, size_t data_len) {
     for (int i = 0; i < data_len; i++) {
@@ -34,59 +29,29 @@ void print_hex_buffer(void * data, size_t data_len) {
     }
 }
 
+// gets the unix epoch time
+uint32_t get_epoch() {
+    time_t out;
+    time(&out);
+    return out;
+}
+
 void app_main(void)
 {
 
-    gpio_pad_select_gpio(LED_BUILTIN);
-    gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);
+    gpio_pad_select_gpio(LED_BUILTIN);                      // setup builtin led
+    gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);      // set led as an output
 
     printf("esp booted!\n");
 
     uint8_t * new_mac = rng_gen(6, NULL);
 
-    ESP_ERROR_CHECK(esp_base_mac_addr_get(new_mac));
+    ble_adapter_set_mac(new_mac);
     printf("mac address set to: ");
     print_hex_buffer(new_mac, 6);
     printf("\n");
 
     free(new_mac);
-
-    /*uint8_t * hash = NULL;
-    uint8_t * zeroes = NULL;
-
-    printf("hashing string \"%s\"...\n", hash_str);
-    hash = sha256(hash_str, sizeof(hash_str)-1, NULL);                // passed!
-    print_hex_buffer(hash, SHA256_HASH_SIZE);
-    printf("\n");
-    free(hash);
-    free(zeroes);
-
-    printf("getting hkdf of string \"%s\"...\n", hash_str);
-    hash = hkdf(hash_str, sizeof(hash_str)-1, 
-        NULL, 0, 
-        NULL, 0,
-        16, 
-        NULL);     // passed!
-    print_hex_buffer(hash, 16);
-    printf("\n");
-    free(hash);
-    free(zeroes);
-
-    printf("getting aes of string \"%s\"...\n", hash_str_block);
-    hash = encrypt_aes_block(crypt_key, AES128_KEY_SIZE, hash_str_block, NULL);
-    print_hex_buffer(hash, AES128_BLOCK_SIZE);
-    printf("\n");
-    free(hash);
-    free(zeroes);
-
-    // passed!
-    printf("getting aes_ctr of string \"%s\"...\n", hash_str);
-    zeroes = zeroes_gen(16, NULL);
-    hash = encrypt_aes_block_ctr(crypt_key, AES128_KEY_SIZE, zeroes, hash_str_block, AES128_BLOCK_SIZE, NULL);
-    print_hex_buffer(hash, AES128_BLOCK_SIZE);
-    printf("\n");
-    free(hash);
-    free(zeroes);*/
 
     ble_adapter_init();
 
@@ -94,26 +59,33 @@ void app_main(void)
     uint8_t uuid[]  = { 0x6f, 0xfd };
     uint8_t data[]  = { 0x6f, 0xfd, 0xde, 0xad, 0xbe, 0xef };
 
-    //ble_adapter_add_raw(data, sizeof(data));
-
-    //ble_adapter_add_long(0x01, 0x1a, 1);
-    //ble_adapter_add_long(0x03, 0xfd6f, 2);
-    //ble_adapter_add_long(0x16, 0xfd6fbeef, 4);
-
     ble_adapter_add_record(0x01, flags, sizeof(flags));
     ble_adapter_add_record(0x02, uuid, sizeof(uuid));
     ble_adapter_add_record(0x16, data, sizeof(data));
 
-    while (1) {
-        esp_bt_sleep_disable();
-        gpio_set_level(LED_BUILTIN, 1);
-        ble_adapter_start_advertising();
-        vTaskDelay(5 / portTICK_PERIOD_MS);
-        ble_adapter_stop_advertising();
-        esp_bt_sleep_enable();
-        gpio_set_level(LED_BUILTIN, 0);
-        esp_sleep_enable_timer_wakeup(1000*1000);
-        esp_light_sleep_start();
+    // main loop
+    while (true) {
+        uint32_t epoch = get_epoch();
+
+        tracer_tek * tek = tracer_derive_tek(epoch);
+
+        tracer_rpik rpik = tracer_derive_rpik(*tek);
+        tracer_aemk aemk = tracer_derive_aemk(*tek);
+
+        tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
+
+        tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
+        tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
+
+        tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
+
+        gpio_set_level(LED_BUILTIN, 1);                             // turn builtin led on
+        ble_adapter_start_advertising();                            // start advertising
+        vTaskDelay(10 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)
+        ble_adapter_stop_advertising();                             // stop advertising
+        gpio_set_level(LED_BUILTIN, 0);                             // turn off builtin led
+        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(1000*1000));  // enable wakeup in 1 second
+        ESP_ERROR_CHECK(esp_light_sleep_start());                   // start sleeping
     }
     
 }
