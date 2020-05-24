@@ -6,6 +6,7 @@
 
 #include "string.h"
 #include "stdlib.h"
+#include "stdint.h"
 
 #ifndef _TRACER_CRYPTO_H_
 #define _TRACER_CRYPTO_H_
@@ -44,6 +45,7 @@ uint8_t * rng_gen(size_t len, void * output) {
 
 // not defined in the standerd, but it's implemented.
 uint8_t * sha256(void * data, size_t data_len, void * output) {
+    
     uint8_t * hash;
     if (output == NULL) hash = (uint8_t*)malloc(SHA256_HASH_SIZE);
     else hash = (uint8_t*)output;

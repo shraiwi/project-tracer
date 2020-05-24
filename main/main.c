@@ -18,10 +18,14 @@
 #include "time.h"
 
 #include "ble_adapter.h"
+#include "storage.h"
 #include "tracer.h"
 
 #define LED_BUILTIN         2
 #define WATCHDOG_TIMEOUT    1000
+
+// teehee
+#define STOOPID_DEBUG() printf("got to line %d!\n", __LINE__ + 1)
 
 void print_hex_buffer(void * data, size_t data_len) {
     for (int i = 0; i < data_len; i++) {
@@ -38,11 +42,26 @@ uint32_t get_epoch() {
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(nvs_flash_init());
 
     gpio_pad_select_gpio(LED_BUILTIN);                      // setup builtin led
     gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);      // set led as an output
 
     printf("esp booted!\n");
+
+    /*storage_file name = storage_open("bootfile");
+    
+    if (name.data == NULL) {
+        printf("new file created\n");
+
+        char fstring[] = "hello world!";
+
+        name.data = fstring;
+        name.data_len = sizeof(fstring);
+
+    } else printf("boot data: %s\n", (char *)name.data);
+
+    storage_close(name);*/
 
     uint8_t * new_mac = rng_gen(6, NULL);
 
@@ -65,10 +84,11 @@ void app_main(void)
 
     // main loop
     while (true) {
+        
         uint32_t epoch = get_epoch();
-
+        
         tracer_tek * tek = tracer_derive_tek(epoch);
-
+        
         tracer_rpik rpik = tracer_derive_rpik(*tek);
         tracer_aemk aemk = tracer_derive_aemk(*tek);
 
@@ -78,6 +98,8 @@ void app_main(void)
         tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
 
         tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
+
+        printf("free RAM: %d\n", esp_get_free_heap_size());
 
         gpio_set_level(LED_BUILTIN, 1);                             // turn builtin led on
         ble_adapter_start_advertising();                            // start advertising

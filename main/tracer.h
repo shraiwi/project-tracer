@@ -7,6 +7,12 @@
  * tracer API
  */
 
+// something in here is causing the ESP32 to crash silently, haha. HAHA.
+// probably has to do with the janky memory handling going on here, maybe a stack overflow?
+// wait, nevermind. this works. or does it? i really can't tell.
+
+// i smell a memory leak somewhere in this coooodeee
+
 // gets size (in bytes) of an object's member.
 #define sizeof_member(type, member) sizeof(((type*)0)->member)
 
@@ -107,7 +113,7 @@ tracer_rpi tracer_derive_rpi(tracer_rpik rpik, uint32_t epoch) {
 
     uint32_t enin = tracer_en_interval_number(epoch);                                // get the enintervalnumber
 
-    memcpy(padded_data + sizeof(padded_data) - sizeof(enin), &enin, sizeof(enin));   // set the last 4 bytes of the padded date to the epoch
+    memcpy(&padded_data[sizeof(padded_data) - sizeof(enin)], &enin, sizeof(enin));   // set the last 4 bytes of the padded date to the epoch
 
     encrypt_aes_block(rpik.value, sizeof(rpik.value), &padded_data, out.value);
 
@@ -133,7 +139,9 @@ tracer_aemk tracer_derive_aemk(tracer_tek tek) {
 
     uint8_t info[AES128_BLOCK_SIZE] = "EN_AEMK";
 
-    hkdf(tek.value, sizeof(tek.value), NULL, 0, info, sizeof(info), sizeof(out.value), out.value);
+    hkdf(tek.value, sizeof(tek.value),
+        NULL, 0, 
+        info, sizeof(info), sizeof(out.value), out.value);
 
     return out;
 }
