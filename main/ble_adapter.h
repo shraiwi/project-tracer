@@ -68,7 +68,7 @@ void ble_adapter_clear_data() {
 }
 
 void ble_adapter_wait_for_ready() {
-    while (!ble_adapter_ready) { vTaskDelay(1 / portTICK_PERIOD_MS); }
+    while (!ble_adapter_ready) { }  // this'll cause a watchdog reset if the adapter never returns to ready instead of blocking the main app thread
 }
 
 void ble_adapter_update_data() {

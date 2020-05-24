@@ -87,19 +87,19 @@ void app_main(void)
         
         uint32_t epoch = get_epoch();
         
-        tracer_tek * tek = tracer_derive_tek(epoch);
+        volatile tracer_tek * tek = tracer_derive_tek(epoch);
         
-        tracer_rpik rpik = tracer_derive_rpik(*tek);
-        tracer_aemk aemk = tracer_derive_aemk(*tek);
+        volatile tracer_rpik rpik = tracer_derive_rpik(*tek);
+        volatile tracer_aemk aemk = tracer_derive_aemk(*tek);
 
-        tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
+        volatile tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
 
-        tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
-        tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
+        volatile tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
+        volatile tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
 
-        tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
+        volatile tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
 
-        printf("free RAM: %d\n", esp_get_free_heap_size());
+        //printf("free RAM: %d\n", esp_get_free_heap_size());
 
         gpio_set_level(LED_BUILTIN, 1);                             // turn builtin led on
         ble_adapter_start_advertising();                            // start advertising

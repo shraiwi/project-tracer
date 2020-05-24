@@ -68,9 +68,8 @@ typedef struct {
  * BLE Advertising payload
  */
 typedef struct {
-    uint8_t value[31]; // ble payloads are already limited at 31 bytes
-    uint8_t len;
-    uint8_t head;
+    uint8_t value[31];  // ble payloads are already limited at 31 bytes
+    size_t len;         // length of the bluetooth payload
 } tracer_ble_payload;
 
 // remember: TEK + epoch => RPIK => RPI =|
@@ -81,10 +80,10 @@ tracer_tek tracer_tek_array[TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
 
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
-    ble_payload->value[ble_payload->head++] = data_len + 1;
-    ble_payload->value[ble_payload->head++] = type;
-    memcpy(&ble_payload->value[ble_payload->head], data, data_len);
-    ble_payload->head += data_len;
+    ble_payload->value[ble_payload->len++] = data_len + 1;
+    ble_payload->value[ble_payload->len++] = type;
+    memcpy(ble_payload->value + ble_payload->len, data, data_len);
+    ble_payload->len += data_len;
 }
 
 uint32_t tracer_en_interval_number(uint32_t epoch) {
@@ -163,8 +162,10 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_rpi rpi, tracer_aem aem) {
         + sizeof(rpi.value) 
         + sizeof(aem.value)] =  { 0x6f, 0xfd };
     
-    memcpy(service_data, rpi.value, sizeof(rpi.value));
-    memcpy(service_data, aem.value, sizeof(aem.value));
+    memcpy(service_data + 2, rpi.value, sizeof(rpi.value));
+    memcpy(service_data + 2 + sizeof(rpi.value), aem.value, sizeof(aem.value));
+    
+    out.len = 0;        // haha, it was YOU! darn you, uninitialized values!
 
     tracer_ble_payload_add_record(&out, 0x01, flags,        sizeof(flags));         // set bluetooth flags
     tracer_ble_payload_add_record(&out, 0x03, uuid,         sizeof(uuid));          // set service uuid
