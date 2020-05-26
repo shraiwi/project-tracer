@@ -27,12 +27,6 @@
 // teehee
 #define STOOPID_DEBUG() printf("got to line %d!\n", __LINE__ + 1)
 
-void print_hex_buffer(void * data, size_t data_len) {
-    for (int i = 0; i < data_len; i++) {
-        printf("%02x", ((uint8_t*)data)[i]);
-    }
-}
-
 // gets the unix epoch time
 uint32_t get_epoch() {
     time_t out;
@@ -48,20 +42,6 @@ void app_main(void)
     gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);      // set led as an output
 
     printf("esp booted!\n");
-
-    /*storage_file name = storage_open("bootfile");
-    
-    if (name.data == NULL) {
-        printf("new file created\n");
-
-        char fstring[] = "hello world!";
-
-        name.data = fstring;
-        name.data_len = sizeof(fstring);
-
-    } else printf("boot data: %s\n", (char *)name.data);
-
-    storage_close(name);*/
 
     uint8_t * new_mac = rng_gen(6, NULL);
 
@@ -82,22 +62,30 @@ void app_main(void)
     ble_adapter_add_record(0x02, uuid, sizeof(uuid));
     ble_adapter_add_record(0x16, data, sizeof(data));
 
+    uint32_t epoch = get_epoch();
+        
+    tracer_tek * tek = tracer_derive_tek(epoch);
+    
+    tracer_rpik rpik = tracer_derive_rpik(*tek);
+    tracer_aemk aemk = tracer_derive_aemk(*tek);
+
+    tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
+
+    tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
+    tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
+
+    tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
+
+    tracer_metadata out_meta;
+
+    if (tracer_verify(rpi, aem, *tek, &out_meta)) {
+        printf("tracer lib verification seems to work!\naem: ");
+        print_hex_buffer(&out_meta, sizeof(out_meta));
+        printf("\n");
+    }
+
     // main loop
     while (true) {
-        
-        uint32_t epoch = get_epoch();
-        
-        volatile tracer_tek * tek = tracer_derive_tek(epoch);
-        
-        volatile tracer_rpik rpik = tracer_derive_rpik(*tek);
-        volatile tracer_aemk aemk = tracer_derive_aemk(*tek);
-
-        volatile tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
-
-        volatile tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
-        volatile tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
-
-        volatile tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
 
         //printf("free RAM: %d\n", esp_get_free_heap_size());
 

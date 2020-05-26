@@ -41,20 +41,6 @@ uint8_t * rng_gen(size_t len, void * output) {
     return out;
 }
 
-// passed tests!
-
-// not defined in the standerd, but it's implemented.
-uint8_t * sha256(void * data, size_t data_len, void * output) {
-    
-    uint8_t * hash;
-    if (output == NULL) hash = (uint8_t*)malloc(SHA256_HASH_SIZE);
-    else hash = (uint8_t*)output;
-
-    mbedtls_sha256_ret((const unsigned char *)data, data_len, hash, false);
-
-    return hash;
-}
-
 
 // passed tests!
 
@@ -122,8 +108,10 @@ uint8_t * decrypt_aes_block(void * key, size_t key_len, void * data, void * outp
 
 // passed tests!
 
-// defined as AES128-CTR(key, iv, data) in the standard.
-uint8_t * encrypt_aes_block_ctr(void * key, size_t key_len, uint8_t iv[16], void * data, size_t data_len, void * output) {
+/** defined as AES128-CTR(key, iv, data) in the standard. 
+ * this operation is "flippable", meaning if you put the output from a prior function into the input of this function, you will get the original data back (assuming your key & iv are the same).
+*/
+uint8_t * flip_aes_block_ctr(void * key, size_t key_len, uint8_t iv[16], void * data, size_t data_len, void * output) {
     
     uint8_t * block;
     if (output == NULL) block = (uint8_t*)malloc(data_len);
@@ -132,7 +120,7 @@ uint8_t * encrypt_aes_block_ctr(void * key, size_t key_len, uint8_t iv[16], void
     mbedtls_aes_context ctx;
 
     size_t nc_off = 0;
-    uint8_t stream_block[16];
+    uint8_t stream_block[16] = "";
 
     mbedtls_aes_init(&ctx);
     mbedtls_aes_setkey_enc(&ctx, (const unsigned char *)key, key_len*8);
