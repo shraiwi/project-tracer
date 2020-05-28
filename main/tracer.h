@@ -82,6 +82,14 @@ typedef struct {
 } tracer_metadata;
 
 /**
+ * An RPI and AEM pair
+ */
+typedef struct {
+    tracer_rpi rpi;
+    tracer_aem aem;
+} tracer_datapair;
+
+/**
  * BLE Advertising payload
  */
 typedef struct {
@@ -95,6 +103,9 @@ typedef struct {
 uint32_t tracer_tek_rolling_period = 144;
 tracer_tek tracer_tek_array[TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
+
+tracer_rpik tracer_current_rpik;
+tracer_aemk tracer_current_aemk;
 
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
     ble_payload->value[ble_payload->len++] = data_len + 1;
@@ -170,17 +181,18 @@ tracer_aem tracer_derive_aem(tracer_aemk aemk, tracer_rpi rpi, tracer_metadata m
     return out;
 }
 
-tracer_ble_payload tracer_derive_ble_payload(tracer_rpi rpi, tracer_aem aem) {
+// derive a new ble payload given a datapair
+tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
     tracer_ble_payload out;
     
     uint8_t flags[]          =  { 0x1a };
-    uint8_t uuid[]           =  { 0x6f, 0xfd };
+    uint8_t uuid[]           =  { 0x6f, 0xfd };     // the ESP32 is little-endian, and so is BLE. However, human readable stuff is big-endian.
     uint8_t service_data[2 
-        + sizeof(rpi.value) 
-        + sizeof(aem.value)] =  { 0x6f, 0xfd };
+        + sizeof(datapair.rpi.value) 
+        + sizeof(datapair.aem.value)] =  { 0x6f, 0xfd };
     
-    memcpy(service_data + 2, rpi.value, sizeof(rpi.value));
-    memcpy(service_data + 2 + sizeof(rpi.value), aem.value, sizeof(aem.value));
+    memcpy(service_data + 2, datapair.rpi.value, sizeof(datapair.rpi.value));
+    memcpy(service_data + 2 + sizeof(datapair.rpi.value), datapair.aem.value, sizeof(datapair.aem.value));
     
     out.len = 0;        // haha, it was YOU! darn you, uninitialized values!
 
@@ -191,35 +203,66 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_rpi rpi, tracer_aem aem) {
     return out;
 }
 
-// returns the address of a newly generated temporary exposure key
+// returns the address of a newly generated temporary exposure key, and updates the current rpik and aemk
 tracer_tek * tracer_derive_tek(uint32_t epoch) {
     tracer_tek * out = &tracer_tek_array[tracer_tek_array_head++];
     tracer_tek_array_head %= TEK_STORE_PERIOD;
     out->en_interval_num = tracer_en_interval_number(epoch);
     rng_gen(sizeof(out->value), out->value);
+
+    tracer_current_rpik = tracer_derive_rpik(*out);
+    tracer_current_aemk = tracer_derive_aemk(*out);
+
     return out;
 }
 
 // parses a ble payload and derives an rpi and aem from it. if the parsing is completed, the function returns true.
-bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_rpi * rpi, tracer_aem * aem) {
+bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * datapair) {
 
-    bool rpi_valid = false, aem_valid = false, payload_valid = false;
+    bool output_valid = false, payload_valid = false;
     for (uint8_t i = 0; i < payload.len;) {
-        uint8_t len = payload.value[i++];
-        uint8_t type = payload.value[i];
+        uint8_t record_len = payload.value[i++];
+
+        if (i + record_len > payload.len) return false; // segfault bad. >:( this protects the parser from them.
+
+        uint8_t type = payload.value[i++];
+
+        uint8_t * data = payload.value + i;
+        uint8_t data_len = record_len - 1;
+
+        //printf("record @ idx %d of type 0x%02x with length %d. data: ", i, type, data_len);
+        //print_hex_buffer(data, data_len);
+        //printf("\n");
+
         switch (type) {
             case 0x03:  // service uuid
-
+                payload_valid = *(uint16_t *)(data) == 0xFD6F; // check if the service id matches the contact tracing standard
             break;
             case 0x16:  // service data
-            
+                if (data_len == 2 + sizeof(datapair->rpi.value) + sizeof(datapair->aem.value)) {    // check if the package is the right size
+                    if (datapair) {
+                        memcpy(datapair->rpi.value, data + 2, sizeof(datapair->rpi.value));
+                        memcpy(datapair->aem.value, data + 2 + sizeof(datapair->aem.value), sizeof(datapair->aem.value));
+                    }
+                    output_valid = true;
+                }
             break;
         }
-        i += len;
+        i += data_len;
     }
 
-    return rpi_valid && aem_valid && payload_valid;
+    return output_valid && payload_valid;
 }
+
+/*  example data:
+tek: 4c22bda759942e0758e47922ed4d6c3e
+rpik: 1ab8a1141ecd1a6ee9f6a33b7296322a
+aemk: e47c05afa4c51eeb286344f1aa634111
+rpi: f603d5f00d002e8eba6cd65090e530ec
+metadata: 40050000
+aem: 29fbe29e
+ble payload: 02011a03036ffd17166ffdf603d5f00d002e8eba6cd65090e530ec29fbe29e
+*/
 
 // checks if an rpi and aem matches a given temporary exposure key, and writes the metadata to an output if there is a match.
 bool tracer_verify(tracer_rpi rpi, tracer_aem aem, tracer_tek tek, tracer_metadata * output_metadata) {
@@ -227,8 +270,8 @@ bool tracer_verify(tracer_rpi rpi, tracer_aem aem, tracer_tek tek, tracer_metada
 
     uint8_t * decrypted_rpik = (uint8_t *)decrypt_aes_block(rpik.value, sizeof(rpik.value), rpi.value, NULL);
 
-    print_hex_buffer(decrypted_rpik, sizeof(rpik.value));
-    printf("\n");
+    //print_hex_buffer(decrypted_rpik, sizeof(rpik.value));
+    //printf("\n");
 
     bool valid = memcmp(decrypted_rpik, RPI_STRING, sizeof(RPI_STRING)) == 0;
 
@@ -242,5 +285,99 @@ bool tracer_verify(tracer_rpi rpi, tracer_aem aem, tracer_tek tek, tracer_metada
 
     return valid;
 }
+
+// derives a rpi-aem pair given an epoch and tx power.
+tracer_datapair tracer_derive_datapair(uint32_t epoch, int8_t tx_power) {
+    tracer_datapair out;
+
+    tracer_metadata meta = tracer_derive_metadata(tx_power);
+
+    out.rpi = tracer_derive_rpi(tracer_current_rpik, epoch);
+    out.aem = tracer_derive_aem(tracer_current_aemk, out.rpi, meta);
+
+    return out;
+}
+
+// self-tests the tracer library.
+/*bool tracer_self_test(uint32_t epoch) {
+
+    printf("deriving keys... ");
+
+    tracer_tek * tek = tracer_derive_tek(epoch);
+
+    tracer_tek_array_head = 0;
+    
+    tracer_rpik rpik = tracer_derive_rpik(*tek);
+    tracer_aemk aemk = tracer_derive_aemk(*tek);
+
+    tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
+
+    tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
+    tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
+
+    tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
+
+    printf("DONE!\n\ttek: ");
+    print_hex_buffer(tek->value, sizeof(tek->value));
+    printf("\n\trpik: ");
+    print_hex_buffer(rpik.value, sizeof(rpik.value));
+    printf("\n\taemk: ");
+    print_hex_buffer(aemk.value, sizeof(aemk.value));
+    printf("\n\trpi: ");
+    print_hex_buffer(rpi.value, sizeof(rpi.value));
+    printf("\n\tmetadata: ");
+    print_hex_buffer(meta.value, sizeof(meta.value));
+    printf("\n\taem: ");
+    print_hex_buffer(aem.value, sizeof(aem.value));
+    printf("\n\tble payload: ");
+    print_hex_buffer(payload.value, sizeof(payload.value));
+    printf("\n");
+
+    tracer_datapair datapair;
+
+    printf("testing tracer lib parsing... ");
+    if (tracer_parse_ble_payload(payload, &datapair)) {
+        printf("OK!\n\tparsed rpi: ");
+        print_hex_buffer(datapair.rpi.value, sizeof(datapair.rpi.value));
+        printf("\n\tparsed aem: ");
+        print_hex_buffer(datapair.aem.value, sizeof(datapair.aem.value));
+        printf("\n\toriginal rpi: ");
+        print_hex_buffer(rpi.value, sizeof(rpi.value));
+        printf("\n\toriginal aem: ");
+        print_hex_buffer(aem.value, sizeof(aem.value));
+        printf("\n");
+    } else {
+        printf("FAIL!\n");
+        return false;
+    }
+
+    tracer_ble_payload random_payload;
+    random_payload.len = esp_random() % 31;
+    rng_gen(sizeof(random_payload.len), random_payload.value);
+
+    // no way in heck the parser should be able to parse a completely random payload...
+    printf("testing tracer lib parsing against random payload... ");
+    if (tracer_parse_ble_payload(random_payload, NULL)) {
+        printf("FAIL!\n\tpayload: ");
+        print_hex_buffer(random_payload.value, random_payload.len);
+        printf("\n");
+        return false;
+    } else printf("OK!\n");
+
+    tracer_metadata out_meta;
+    printf("testing tracer lib verification... ");
+    if (tracer_verify(rpi, aem, *tek, &out_meta)) {
+        printf("OK!\n\tdecrypted metadata: ");
+        print_hex_buffer(&out_meta, sizeof(out_meta.value));
+        printf("\n\toriginal metadata: ");
+        print_hex_buffer(&meta, sizeof(meta.value));
+        printf("\n");
+    } else {
+        printf("FAIL!\n");
+        return false;
+    }
+
+    return true;
+}*/
 
 #endif

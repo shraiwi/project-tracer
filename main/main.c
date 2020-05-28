@@ -20,12 +20,12 @@
 #include "ble_adapter.h"
 #include "storage.h"
 #include "tracer.h"
+#include "cvec.h"
 
 #define LED_BUILTIN         2
 #define WATCHDOG_TIMEOUT    1000
 
-// teehee
-#define STOOPID_DEBUG() printf("got to line %d!\n", __LINE__ + 1)
+tracer_datapair * scanned_data = NULL;
 
 // gets the unix epoch time
 uint32_t get_epoch() {
@@ -34,55 +34,85 @@ uint32_t get_epoch() {
     return out;
 }
 
+void scan_cb(ble_adapter_scan_result res) {
+    tracer_ble_payload payload;
+    payload.len = res.adv_data_len;
+    memcpy(payload.value, res.adv_data, payload.len);
+    
+    tracer_datapair pair;
+
+    if (tracer_parse_ble_payload(payload, &pair)) {
+        bool rpi_exists = false;
+
+        for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
+            rpi_exists |= memcmp(pair.rpi.value, scanned_data[i].rpi.value, sizeof(pair.rpi.value)) == 0;
+            if (rpi_exists) break;
+        }
+
+        if (!rpi_exists) cvec_append(scanned_data, pair);
+    }
+}
+
 void app_main(void)
 {
+    printf("esp booted!\n");
+
     ESP_ERROR_CHECK(nvs_flash_init());
 
     gpio_pad_select_gpio(LED_BUILTIN);                      // setup builtin led
     gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);      // set led as an output
 
-    printf("esp booted!\n");
+    uint8_t * random_mac = rng_gen(6, NULL);
 
-    uint8_t * new_mac = rng_gen(6, NULL);
-
-    ble_adapter_set_mac(new_mac);
-    printf("mac address set to: ");
-    print_hex_buffer(new_mac, 6);
+    printf("setting new random mac: ");
+    print_hex_buffer(random_mac, 6);
     printf("\n");
+    
+    ble_adapter_set_mac(random_mac);
 
-    free(new_mac);
+    free(random_mac);
 
     ble_adapter_init();
 
-    uint8_t flags[] = { 0x1a };
+    ble_adapter_register_scan_callback(&scan_cb);
+
+    scanned_data = cvec_arrayof(tracer_datapair);
+
+    ble_adapter_start_scanning();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    ble_adapter_stop_scanning();
+
+    cvec_crunch(scanned_data);
+
+    for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
+        printf("peer %d\n\trpi: ", i);
+        print_hex_buffer(scanned_data[i].rpi.value, sizeof(scanned_data[i].rpi.value));
+        printf("\n\taem: ");
+        print_hex_buffer(scanned_data[i].aem.value, sizeof(scanned_data[i].aem.value));
+        printf("\n");
+    }
+
+    cvec_free(scanned_data);
+
+    /*uint8_t flags[] = { 0x1a };
     uint8_t uuid[]  = { 0x6f, 0xfd };
     uint8_t data[]  = { 0x6f, 0xfd, 0xde, 0xad, 0xbe, 0xef };
 
     ble_adapter_add_record(0x01, flags, sizeof(flags));
     ble_adapter_add_record(0x02, uuid, sizeof(uuid));
-    ble_adapter_add_record(0x16, data, sizeof(data));
+    ble_adapter_add_record(0x16, data, sizeof(data));*/
 
     uint32_t epoch = get_epoch();
-        
+
+    //tracer_self_test(epoch);
+
     tracer_tek * tek = tracer_derive_tek(epoch);
-    
-    tracer_rpik rpik = tracer_derive_rpik(*tek);
-    tracer_aemk aemk = tracer_derive_aemk(*tek);
 
-    tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
+    tracer_datapair pair = tracer_derive_datapair(epoch, ble_adapter_get_adv_tx_power());
 
-    tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
-    tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
+    tracer_ble_payload payload = tracer_derive_ble_payload(pair);
 
-    tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
-
-    tracer_metadata out_meta;
-
-    if (tracer_verify(rpi, aem, *tek, &out_meta)) {
-        printf("tracer lib verification seems to work!\naem: ");
-        print_hex_buffer(&out_meta, sizeof(out_meta));
-        printf("\n");
-    }
+    ble_adapter_add_raw(payload.value, payload.len);
 
     // main loop
     while (true) {

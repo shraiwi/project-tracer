@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <style>
+            * {
+                font-family: Arial, Helvetica, sans-serif;
+            }
+            #card {
+                width: 86mm;
+                height: 54mm;
+                border-radius: 3.5mm;
+                text-align: center;
+                display: table-cell;
+                vertical-align: middle;
+                /*background-color: black;*/
+                border: 5px dashed black;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="card">
+        </div>
+        <script>
+            let data = (Math.floor(Date.now() / 1000) | 0).toString(2).split("");
+
+            function tx(dataString) {
+                let card = document.getElementById("card");
+                let frameSchedule = dataString.map(a => [2, 4][a]);
+                let index = 0;
+
+                return new Promise(resolve => {
+                    function onFrame(time) {
+                        if (frameSchedule[index]-- === 0) index++;
+                        card.style.backgroundColor = ["black", "white"][index % 2];
+
+                        if (index < frameSchedule.length) window.requestAnimationFrame(onFrame);
+                        else resolve()
+                    }
+
+                    window.requestAnimationFrame(onFrame);
+                });
+            }
+
+            
+            async function transmit() {
+                console.log("transmitting data...");
+                await tx(data);
+                console.log("done!");
+            }
+            transmit();
+        </script>
+    </body>
+</html>
