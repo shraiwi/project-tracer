@@ -7,6 +7,8 @@
 #ifndef _STORAGE_H_
 #define _STORAGE_H_
 
+// THIS API IS NOW OBSELETE IN FAVOR FOR THE SPIFFS FILESYSTEM
+
 nvs_handle_t storage_handle;
 int storage_open_files = 0;
 

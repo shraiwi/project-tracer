@@ -13,6 +13,7 @@
 
 #include "esp_sleep.h"
 #include "esp_task_wdt.h"
+#include "esp_spiffs.h"
 
 #include "stdio.h"
 #include "time.h"
@@ -45,12 +46,44 @@ void scan_cb(ble_adapter_scan_result res) {
         bool rpi_exists = false;
 
         for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
-            rpi_exists |= memcmp(pair.rpi.value, scanned_data[i].rpi.value, sizeof(pair.rpi.value)) == 0;
+            rpi_exists |= tracer_compare_datapairs(pair, scanned_data[i]);
             if (rpi_exists) break;
         }
 
         if (!rpi_exists) cvec_append(scanned_data, pair);
     }
+}
+
+void scan_for_peers() {
+    scanned_data = cvec_arrayof(tracer_datapair);
+
+    ble_adapter_start_scanning();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    ble_adapter_stop_scanning();
+
+    cvec_crunch(scanned_data);  // free up unused memory
+
+    //tracer_tek match_tek;
+    //uint8_t test_tek[] = {0x4c, 0x22, 0xbd, 0xa7, 0x59, 0x94, 0x2e, 0x07, 0x58, 0xe4, 0x79, 0x22, 0xed, 0x4d, 0x6c, 0x3e};
+    //memcpy(match_tek.value, test_tek, sizeof(match_tek.value));
+
+    //storage_file saved_pairs = storage_open("saved_pairs");
+
+    //cvec_convert(saved_pairs.data, tracer_record, saved_pairs.data_len);
+
+    for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
+        //cvec_append(saved_pairs, scanned_data[i]);
+        printf("peer %d\n\trpi: ", i);
+        print_hex_buffer(scanned_data[i].rpi.value, sizeof(scanned_data[i].rpi.value));
+        printf("\n\taem: ");
+        print_hex_buffer(scanned_data[i].aem.value, sizeof(scanned_data[i].aem.value));
+        printf("\n");
+        //if (tracer_verify(scanned_data[i], match_tek, NULL)) {
+        //    printf("\tmatches test tek!!\n");
+        //}
+    }
+
+    cvec_free(scanned_data);
 }
 
 void app_main(void)
@@ -76,35 +109,9 @@ void app_main(void)
 
     ble_adapter_register_scan_callback(&scan_cb);
 
-    scanned_data = cvec_arrayof(tracer_datapair);
-
-    ble_adapter_start_scanning();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    ble_adapter_stop_scanning();
-
-    cvec_crunch(scanned_data);
-
-    for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
-        printf("peer %d\n\trpi: ", i);
-        print_hex_buffer(scanned_data[i].rpi.value, sizeof(scanned_data[i].rpi.value));
-        printf("\n\taem: ");
-        print_hex_buffer(scanned_data[i].aem.value, sizeof(scanned_data[i].aem.value));
-        printf("\n");
-    }
-
-    cvec_free(scanned_data);
-
-    /*uint8_t flags[] = { 0x1a };
-    uint8_t uuid[]  = { 0x6f, 0xfd };
-    uint8_t data[]  = { 0x6f, 0xfd, 0xde, 0xad, 0xbe, 0xef };
-
-    ble_adapter_add_record(0x01, flags, sizeof(flags));
-    ble_adapter_add_record(0x02, uuid, sizeof(uuid));
-    ble_adapter_add_record(0x16, data, sizeof(data));*/
+    scan_for_peers();
 
     uint32_t epoch = get_epoch();
-
-    //tracer_self_test(epoch);
 
     tracer_tek * tek = tracer_derive_tek(epoch);
 
@@ -116,9 +123,6 @@ void app_main(void)
 
     // main loop
     while (true) {
-
-        //printf("free RAM: %d\n", esp_get_free_heap_size());
-
         gpio_set_level(LED_BUILTIN, 1);                             // turn builtin led on
         ble_adapter_start_advertising();                            // start advertising
         vTaskDelay(10 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)

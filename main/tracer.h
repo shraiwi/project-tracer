@@ -90,6 +90,23 @@ typedef struct {
 } tracer_datapair;
 
 /**
+ * An RPIK and AEMK pair
+ */
+typedef struct {
+    tracer_rpik rpik;
+    tracer_aemk aemk;
+} tracer_keypair;
+
+/**
+ * A record used for storing exposure notifications
+ */
+typedef struct {
+    uint32_t en_interval_num;
+    int8_t rssi;
+    tracer_datapair datapair;
+} tracer_record;
+
+/**
  * BLE Advertising payload
  */
 typedef struct {
@@ -104,8 +121,7 @@ uint32_t tracer_tek_rolling_period = 144;
 tracer_tek tracer_tek_array[TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
 
-tracer_rpik tracer_current_rpik;
-tracer_aemk tracer_current_aemk;
+tracer_keypair tracer_current_keypair;
 
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
     ble_payload->value[ble_payload->len++] = data_len + 1;
@@ -147,6 +163,21 @@ tracer_rpi tracer_derive_rpi(tracer_rpik rpik, uint32_t epoch) {
     return out;
 }
 
+// derive a new storage record
+tracer_record tracer_derive_record(tracer_datapair pair, int8_t rssi, uint32_t epoch) {
+    tracer_record out = {
+        .en_interval_num = tracer_en_interval_number(epoch),
+        .rssi = rssi,
+        .datapair = pair,
+    };
+    return out;
+}
+
+// tests 2 datapairs for equality
+bool tracer_compare_datapairs(tracer_datapair a, tracer_datapair b) {
+    return memcmp(&a.aem.value, &b.aem.value, sizeof(a.aem.value)) == 0 && memcmp(&a.rpi.value, &b.rpi.value, sizeof(a.rpi.value)) == 0;
+}
+
 // derive new metadata
 tracer_metadata tracer_derive_metadata(int8_t tx_power) {
     tracer_metadata out;
@@ -181,6 +212,13 @@ tracer_aem tracer_derive_aem(tracer_aemk aemk, tracer_rpi rpi, tracer_metadata m
     return out;
 }
 
+tracer_keypair tracer_derive_keypair(tracer_tek tek) {
+    tracer_keypair out;
+    out.rpik = tracer_derive_rpik(tek);
+    out.aemk = tracer_derive_aemk(tek);
+    return out;
+}
+
 // derive a new ble payload given a datapair
 tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
     tracer_ble_payload out;
@@ -203,15 +241,14 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
     return out;
 }
 
-// returns the address of a newly generated temporary exposure key, and updates the current rpik and aemk
+// returns the address of a newly generated temporary exposure key, and updates the current keypair
 tracer_tek * tracer_derive_tek(uint32_t epoch) {
     tracer_tek * out = &tracer_tek_array[tracer_tek_array_head++];
     tracer_tek_array_head %= TEK_STORE_PERIOD;
     out->en_interval_num = tracer_en_interval_number(epoch);
     rng_gen(sizeof(out->value), out->value);
 
-    tracer_current_rpik = tracer_derive_rpik(*out);
-    tracer_current_aemk = tracer_derive_aemk(*out);
+    tracer_current_keypair = tracer_derive_keypair(*out);
 
     return out;
 }
@@ -265,10 +302,10 @@ ble payload: 02011a03036ffd17166ffdf603d5f00d002e8eba6cd65090e530ec29fbe29e
 */
 
 // checks if an rpi and aem matches a given temporary exposure key, and writes the metadata to an output if there is a match.
-bool tracer_verify(tracer_rpi rpi, tracer_aem aem, tracer_tek tek, tracer_metadata * output_metadata) {
+bool tracer_verify(tracer_datapair datapair, tracer_tek tek, tracer_metadata * output_metadata) {
     tracer_rpik rpik = tracer_derive_rpik(tek);
 
-    uint8_t * decrypted_rpik = (uint8_t *)decrypt_aes_block(rpik.value, sizeof(rpik.value), rpi.value, NULL);
+    uint8_t * decrypted_rpik = (uint8_t *)decrypt_aes_block(rpik.value, sizeof(rpik.value), datapair.rpi.value, NULL);
 
     //print_hex_buffer(decrypted_rpik, sizeof(rpik.value));
     //printf("\n");
@@ -278,7 +315,7 @@ bool tracer_verify(tracer_rpi rpi, tracer_aem aem, tracer_tek tek, tracer_metada
     if (valid && output_metadata) {
         uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
         tracer_aemk aemk = tracer_derive_aemk(tek);
-        flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, rpi.value, aem.value, sizeof(aem.value), output_metadata->value);
+        flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, datapair.rpi.value, datapair.aem.value, sizeof(datapair.aem.value), output_metadata->value);
     }
 
     free(decrypted_rpik);
@@ -292,8 +329,8 @@ tracer_datapair tracer_derive_datapair(uint32_t epoch, int8_t tx_power) {
 
     tracer_metadata meta = tracer_derive_metadata(tx_power);
 
-    out.rpi = tracer_derive_rpi(tracer_current_rpik, epoch);
-    out.aem = tracer_derive_aem(tracer_current_aemk, out.rpi, meta);
+    out.rpi = tracer_derive_rpi(tracer_current_keypair.rpik, epoch);
+    out.aem = tracer_derive_aem(tracer_current_keypair.aemk, out.rpi, meta);
 
     return out;
 }

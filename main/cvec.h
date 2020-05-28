@@ -12,6 +12,9 @@
 // creates a new cvec array given a type
 #define cvec_arrayof(type) _cvec_allocate(sizeof(type))
 
+// creates a new cvec array given a pointer to an existing array, its datatype, and its length (in bytes). the original pointer can now be used as a cvec and typical array.
+#define cvec_convert(array, type, size) _cvec_convert((void**)&array, sizeof(type), size)
+
 // appends an item to the end of an array
 #define cvec_append(array, item) do { typeof(item) _temp = item; _cvec_append((void **)&array, &_temp); } while(0)
 
@@ -40,6 +43,16 @@ void * _cvec_allocate(size_t item_len) {
     header->item_capacity = CVEC_INITIAL_SIZE;
     header->head = 0;
     return &header[1];
+}
+
+// initializes an existing array as a cvec. 
+void _cvec_convert(void ** array, size_t item_len, size_t array_size) {
+    cvec_header * header = (cvec_header *)realloc(*array, sizeof(cvec_header) + array_size);
+    *array = &header[1];
+    memmove(*array, header, array_size);
+    header->item_len = item_len;
+    header->item_capacity = array_size / item_len;
+    header->head = header->item_capacity;
 }
 
 // appends an item to the end of a cvec but eeEEeWW pOInTErss

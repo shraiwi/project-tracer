@@ -12,7 +12,17 @@
     "freertos.h": "c",
     "stdio.h": "c",
     "hkdf.h": "c",
-    "config.h": "c"
+    "config.h": "c",
+    "optional": "cpp",
+    "istream": "cpp",
+    "ostream": "cpp",
+    "ratio": "cpp",
+    "system_error": "cpp",
+    "array": "cpp",
+    "functional": "cpp",
+    "tuple": "cpp",
+    "type_traits": "cpp",
+    "utility": "cpp"
   },
   "idf.adapterTargetName": "esp32",
   "cmake.configureOnOpen": false,
