@@ -23,7 +23,8 @@ void print_hex_buffer(void * data, size_t data_len) {
 #define sizeof_member(type, member) sizeof(((type*)0)->member)
 
 // settings
-#define TEK_STORE_PERIOD 14         // how many days to store the keys for.
+#define TRACER_TEK_STORE_PERIOD 14  // how many days to store the keys for.
+#define TRACER_ENIN_EXPIRY      (TRACER_TEK_STORE_PERIOD * 24 / (60 * 10))    // how many enintervalnumbers to store data for
 #define TRACER_MAJOR_VERSION    1   // standard major version x.0
 #define TRACER_MINOR_VERSION    0   // standard minor version 0.x
 
@@ -118,7 +119,7 @@ typedef struct {
 //                |=======> AEMK =====> AEM
 
 uint32_t tracer_tek_rolling_period = 144;
-tracer_tek tracer_tek_array[TEK_STORE_PERIOD];
+tracer_tek tracer_tek_array[TRACER_TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
 
 tracer_keypair tracer_current_keypair;
@@ -244,7 +245,7 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
 // returns the address of a newly generated temporary exposure key, and updates the current keypair
 tracer_tek * tracer_derive_tek(uint32_t epoch) {
     tracer_tek * out = &tracer_tek_array[tracer_tek_array_head++];
-    tracer_tek_array_head %= TEK_STORE_PERIOD;
+    tracer_tek_array_head %= TRACER_TEK_STORE_PERIOD;
     out->en_interval_num = tracer_en_interval_number(epoch);
     rng_gen(sizeof(out->value), out->value);
 

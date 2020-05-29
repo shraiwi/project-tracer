@@ -3,6 +3,7 @@
 #include "mbedtls/sha256.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/hkdf.h"
+#include "mbedtls/base64.h"
 
 #include "string.h"
 #include "stdlib.h"
@@ -128,6 +129,58 @@ uint8_t * flip_aes_block_ctr(void * key, size_t key_len, uint8_t iv[16], void * 
     mbedtls_aes_free(&ctx);
     
     return block;
+}
+
+// calculates the size of a base64-encoded string given the size of the source buffer.
+size_t b64_encoded_size(size_t src_size) {
+    return ((src_size + 2) / 3) * 4 + 1;    // +1 for null-termination
+}
+
+// calculates the size of a base64-decoded string given the size of the source buffer.
+size_t b64_decoded_size(size_t src_size) {
+    return ((src_size + 3) / 4) * 3;
+}
+
+// encodes data into a base64 string. be sure to free the buffer after using it!
+char * b64_encode(void * data, size_t data_len) {
+
+    size_t output_len = b64_encoded_size(data_len);
+
+    char * out = (char*)malloc(output_len);
+
+    size_t written_bytes;
+
+    mbedtls_base64_encode((unsigned char *)out, output_len, &written_bytes, (const unsigned char *)data, data_len);
+
+    out = realloc(out, written_bytes + 1);
+    out[written_bytes] = '\0';
+
+    return out;
+}
+
+// decodes a base64 string into a buffer. be sure to free the buffer after using it!
+uint8_t * b64_decode(void * data) {
+
+    size_t data_len = strlen(data);
+    size_t output_len = b64_decoded_size(data_len);
+
+    uint8_t * out = malloc(output_len);
+
+    size_t written_bytes;
+
+    mbedtls_base64_decode((unsigned char *)out, output_len, &written_bytes, (const unsigned char *)data, data_len);
+
+    out = realloc(out, written_bytes);
+
+    return out;
+}
+
+// replaces all occurences of a source character with another character
+void replace_char(char * src, char from, char to) {
+    size_t len = strlen(src);
+    for (size_t i = 0; i < len; i++) {
+        if (src[i] == from) src[i] = to;
+    }
 }
 
 #endif
