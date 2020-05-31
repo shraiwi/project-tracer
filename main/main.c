@@ -24,6 +24,7 @@
 
 #include "stdio.h"
 #include "time.h"
+#include "limits.h"
 
 #include "ble_adapter.h"
 #include "storage.h"
@@ -136,13 +137,211 @@ void delete_old_enins(uint32_t epoch) {
     closedir(root_dir);
 }
 
-void sample_adc() {
-    printf("sampling adc for 2000 samples...\n");
-    for (size_t i = 0; i < 2000; i++) {
+uint32_t derive_light_data() {
+    //printf("sampling adc...\n");
+
+    TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
+    ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
+
+    const int hist_range = 7;       // histogram range
+    const int chunk_size = 6;       // 64
+    const size_t time_buf_size = 5; // 32
+    const size_t timeout = 5000;   // timeout after 5 seconds
+
+    uint16_t chunk_data[1<<chunk_size];
+    uint16_t chunk_head = 0;
+    uint16_t chunk_min = UINT16_MAX, chunk_max = 0;
+    int8_t last_value = -1;
+
+    size_t last_time = 0;
+
+    size_t * times = cvec_arrayof(size_t);
+
+    size_t i = 0;
+
+    typedef struct {
+        int value, count;
+    } histogram_bin;
+
+    histogram_bin * bins = cvec_arrayof(histogram_bin);
+    
+    while (i < timeout) {
         int64_t next_tick = get_micros() + 1000;
-        printf("%d\n", adc1_get_raw(ADC1_CHANNEL_6));
-        while (get_micros() < next_tick) {  }
+        chunk_data[chunk_head] = adc1_get_raw(ADC1_CHANNEL_6);
+
+        //printf("%d", chunk_data[])
+
+        if (chunk_data[chunk_head] < chunk_min) chunk_min = chunk_data[chunk_head];
+        if (chunk_data[chunk_head] > chunk_max) chunk_max = chunk_data[chunk_head];
+
+        chunk_head++;
+
+        // on chunk full,
+        if (chunk_head > 1 << chunk_size) {
+            chunk_head = 0;
+
+            uint16_t chunk_threshold = (chunk_max - chunk_min) >> 1;
+
+            //printf("new chunk!\n\tmax: %d\n\tmin: %d\n\trange: %d\n", chunk_max, chunk_min, chunk_threshold);
+
+            // iterate over the chunk
+            for (uint16_t j = 0; j < 1 << chunk_size; j++) {
+
+                chunk_data[j] -= chunk_min;                     // shift the data down
+
+                bool val = chunk_data[j] > chunk_threshold;     // determine if the bit is high or low
+
+                if (last_value == -1) last_value = val;         // set initial value
+
+                // if there's a bit flip,
+                if (val != last_value) {
+                    //printf("\tbit flip!\n");
+
+                    size_t time = i - (1 << chunk_size) + j;   // calculate the delta time
+
+                    if (last_time == 0) last_time = time;      // set initial values
+
+                    size_t delta = time - last_time;
+
+                    cvec_append(times, delta);
+
+                    //printf("\tnum bins: %d\n", cvec_sizeof(bins));
+
+                    if (cvec_sizeof(bins) == 0) {
+                        //printf("\tnew bin!\n");
+                        histogram_bin dat;
+                        dat.value = delta;
+                        dat.count = 1;
+                        cvec_append(bins, dat);
+                        //printf("bin:\n\tvalue: %d\n\ttcount: %d\n", dat.value, dat.count);
+                    }
+
+                    size_t num_bins = cvec_sizeof(bins);
+
+                    bool matched_to_bin = false;
+
+                    for (size_t k = 0; k < num_bins; k++) {
+                        histogram_bin * bin = &bins[k];
+                        if ((delta > (bin->value - hist_range)) && (delta < (bin->value + hist_range))) {
+                            bin->value = (bin->value * 3 + delta) / 4;
+                            bin->count++;
+                            matched_to_bin = true;
+                            break;
+                        }
+                    }
+
+                    if (!matched_to_bin) {
+                        histogram_bin dat;
+                        dat.value = delta;
+                        dat.count = 1;
+                        cvec_append(bins, dat);
+                    }
+
+                    last_time = time;                          // set last value
+                }
+
+                last_value = val;   // set last value
+            }
+
+            chunk_min = UINT16_MAX; // reset chunk minima and maxima
+            chunk_max = 0;
+        }
+
+        i++;
+
+        while (get_micros() < next_tick) { }
     }
+
+    // sanity check to get rid of invalid data
+    if (cvec_sizeof(bins) == 0) {
+        cvec_free(bins);
+        cvec_free(times);
+        return 0;
+    }
+    
+    //printf("getting top bins...\n");
+
+    // indices of the top 3 bins
+    size_t top_bins[4] = { 0 };
+
+    for (size_t i = 0; i < cvec_sizeof(bins); i++) {
+        histogram_bin * bin = &bins[i];
+
+        //printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+
+        for (size_t j = 0; j < 3; j++) {
+            histogram_bin * cmp_bin = &bins[top_bins[j]];
+            if (bin->count >= cmp_bin->count) {
+                memmove(&top_bins[j+1], &top_bins[j], sizeof(top_bins) - sizeof(size_t) * j);
+                top_bins[j] = i;
+                break;
+            }
+        }
+        //if (bins[i].count > 3) printf("bin:\n\tvalue: %d\n\tcount: %d\n", bin->value, bins[i].count);
+    }
+
+    //printf("ordering top bins...\n");
+
+    // bit times, ordered by value
+    size_t bit_times[4] = { SIZE_MAX };
+
+    for (size_t i = 0; i < 3; i++) {
+        histogram_bin * bin = &bins[top_bins[i]];
+        //printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        for (size_t j = 0; j < 3; j++) {
+            if (bin->value <= bit_times[j]) {
+                memmove(&bit_times[j+1], &bit_times[j], sizeof(bit_times) - sizeof(size_t) * j);
+                bit_times[j] = bin->value;
+                break;
+            }
+        }
+    }
+
+    /*printf("bin values...\n");
+    for (size_t i = 0; i < 3; i++) {
+        printf("\tbit %d = %d\n", i, bit_times[i]);
+    }*/
+
+    uint8_t * data = cvec_arrayof(uint8_t);
+
+    //printf("light data:\n");
+    for (size_t i = 0; i < cvec_sizeof(times); i++) {
+        size_t delta = times[i];
+        for (size_t j = 0; j < 3; j++) {
+            if (delta > (bit_times[j] - hist_range) && delta < (bit_times[j] + hist_range)) {
+                //printf("\t%d\n", j);
+                cvec_append(data, j);
+                break;
+            }
+        }
+    }
+
+    uint16_t header_counter = 0;
+    uint32_t packet_data = 0;
+    uint8_t packet_head = 0;
+
+    for (size_t i = 1; i < cvec_sizeof(data); i++) {
+        //uint8_t last_bit = data[i-1];
+        uint8_t bit = data[i];
+
+        // on packet data,
+        if (header_counter >= 6 && bit != 2) {
+            packet_data |= bit << packet_head++;
+            if (packet_head == 31) break;
+        } else {
+            // increment header counter
+            if (bit == 2) header_counter++;
+            else header_counter = 0;
+        }
+    }
+
+    cvec_free(data);
+    cvec_free(bins);
+    cvec_free(times);
+
+    ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
+
+    return packet_data;
 }
 
 void app_main(void)
@@ -151,17 +350,27 @@ void app_main(void)
 
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    gpio_pad_select_gpio(LED_BUILTIN);                      // setup builtin led
-    gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);      // set led as an output
+    gpio_pad_select_gpio(LED_BUILTIN);                          // setup builtin led
+    gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);          // set led as an output
 
-    adc1_config_width(ADC_WIDTH_12Bit);                     // set adc to 12 bits
+    adc1_config_width(ADC_WIDTH_12Bit);                         // set adc to 12 bits
     adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_11db);  // set attenuation to -11dB (0-3v)
 
-    //struct timeval tv;
+    // get date from lifi...
 
-    //tv.tv_sec = 3082;
+    printf("sampling data...\n");
 
-    //settimeofday(&tv, NULL);
+    struct timeval tv;
+
+    tv.tv_sec = derive_light_data();
+
+    settimeofday(&tv, NULL);
+
+    time_t now;
+
+    time(&now);
+
+    printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
 
     // initialize spiffs
 
@@ -231,8 +440,6 @@ void app_main(void)
     printf("aGkhAA== => %s\n", b64);
 
     free(b64);*/
-
-    sample_adc();
 
     // advertising loop
     while (true) {

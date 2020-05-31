@@ -22,7 +22,10 @@
     "functional": "cpp",
     "tuple": "cpp",
     "type_traits": "cpp",
-    "utility": "cpp"
+    "utility": "cpp",
+    "cstdio": "c",
+    "string": "c",
+    "string_view": "c"
   },
   "idf.adapterTargetName": "esp32",
   "cmake.configureOnOpen": false,

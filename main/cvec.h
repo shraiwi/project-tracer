@@ -30,6 +30,9 @@
 // frees a given array
 #define cvec_free(array) _cvec_free((void**)&array)
 
+// gets the last item of a given array
+#define cvec_last(array) *(typeof(array[0])*)_cvec_last(array)
+
 typedef struct {
     size_t item_len;
     size_t item_capacity;
@@ -91,6 +94,12 @@ void _cvec_shrink(void ** cvec) {
     header->item_capacity--;
     header = (cvec_header *)realloc(header, sizeof(cvec_header) + header->item_len * header->item_capacity);
     *cvec = &header[1];
+}
+
+// gets the last item of a cvec array
+void * _cvec_last(void * cvec) {
+    cvec_header * header = (cvec_header *)(cvec - sizeof(cvec_header));
+    return cvec + (header->head-1) * header->item_len;
 }
 
 // get the allocated memory in an array
