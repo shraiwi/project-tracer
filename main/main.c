@@ -19,8 +19,10 @@
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 #include "esp_spiffs.h"
+#include "esp32/ulp.h"
 
 #include <driver/adc.h>
+#include <driver/touch_pad.h>
 
 #include "stdio.h"
 #include "time.h"
@@ -31,12 +33,13 @@
 #include "tracer.h"
 #include "cvec.h"
 
-#define LED_BUILTIN         2
+#define LED_PIN             2
 #define PHOTOCELL_PIN       34
-#define WATCHDOG_TIMEOUT    1000
+#define TOUCH_PIN           33
 #define SPIFFS_ROOT         "/spiffs"
 
 tracer_datapair * scanned_data = NULL;
+bool touch_wake = false;
 
 int64_t get_micros() {
     return esp_timer_get_time();
@@ -119,6 +122,18 @@ void scan_for_peers(uint32_t epoch) {
     cvec_free(scanned_data);
 }
 
+void print_touch() {
+    printf("touch values...");
+    for (size_t i = 0; i < 2000; i++) {
+        uint8_t raw_val;
+        uint16_t filtered_val;
+        touch_pad_read_raw_data(TOUCH_PAD_GPIO33_CHANNEL, &raw_val);
+        touch_pad_read_filtered(TOUCH_PAD_GPIO33_CHANNEL, &filtered_val);
+        printf("\t%d,\t%d\n", raw_val, filtered_val);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+}
+
 void delete_old_enins(uint32_t epoch) {
 
     uint32_t enin = tracer_en_interval_number(epoch);
@@ -146,7 +161,8 @@ uint32_t derive_light_data() {
     const int hist_range = 7;       // histogram range
     const int chunk_size = 6;       // 64
     const size_t time_buf_size = 5; // 32
-    const size_t timeout = 5000;   // timeout after 5 seconds
+    const size_t timeout = 5000;    // timeout after 5 seconds
+    const uint16_t min_range = 200; 
 
     uint16_t chunk_data[1<<chunk_size];
     uint16_t chunk_head = 0;
@@ -154,6 +170,7 @@ uint32_t derive_light_data() {
     int8_t last_value = -1;
 
     size_t last_time = 0;
+    size_t longest_bin = 0;
 
     size_t * times = cvec_arrayof(size_t);
 
@@ -169,6 +186,8 @@ uint32_t derive_light_data() {
         int64_t next_tick = get_micros() + 1000;
         chunk_data[chunk_head] = adc1_get_raw(ADC1_CHANNEL_6);
 
+        gpio_set_level(LED_PIN, 1 & (get_micros() >> 17));  // blink LED approximately every 250ms
+
         //printf("%d", chunk_data[])
 
         if (chunk_data[chunk_head] < chunk_min) chunk_min = chunk_data[chunk_head];
@@ -181,11 +200,11 @@ uint32_t derive_light_data() {
             chunk_head = 0;
 
             uint16_t chunk_threshold = (chunk_max - chunk_min) >> 1;
-
-            //printf("new chunk!\n\tmax: %d\n\tmin: %d\n\trange: %d\n", chunk_max, chunk_min, chunk_threshold);
-
-            // iterate over the chunk
-            for (uint16_t j = 0; j < 1 << chunk_size; j++) {
+            
+            // make sure wave amplitude is big enough
+            if (chunk_threshold > min_range) {
+                // iterate over the chunk
+                for (uint16_t j = 0; j < 1 << chunk_size; j++) {
 
                 chunk_data[j] -= chunk_min;                     // shift the data down
 
@@ -225,6 +244,7 @@ uint32_t derive_light_data() {
                         if ((delta > (bin->value - hist_range)) && (delta < (bin->value + hist_range))) {
                             bin->value = (bin->value * 3 + delta) / 4;
                             bin->count++;
+                            
                             matched_to_bin = true;
                             break;
                         }
@@ -243,6 +263,7 @@ uint32_t derive_light_data() {
                 last_value = val;   // set last value
             }
 
+            }
             chunk_min = UINT16_MAX; // reset chunk minima and maxima
             chunk_max = 0;
         }
@@ -252,10 +273,14 @@ uint32_t derive_light_data() {
         while (get_micros() < next_tick) { }
     }
 
-    // sanity check to get rid of invalid data
+    // sanity check to get rid of null data
     if (cvec_sizeof(bins) == 0) {
         cvec_free(bins);
         cvec_free(times);
+
+        printf("no valid data found!\n");
+
+        ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
         return 0;
     }
     
@@ -287,7 +312,7 @@ uint32_t derive_light_data() {
 
     for (size_t i = 0; i < 3; i++) {
         histogram_bin * bin = &bins[top_bins[i]];
-        //printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
         for (size_t j = 0; j < 3; j++) {
             if (bin->value <= bit_times[j]) {
                 memmove(&bit_times[j+1], &bit_times[j], sizeof(bit_times) - sizeof(size_t) * j);
@@ -344,21 +369,42 @@ uint32_t derive_light_data() {
     return packet_data;
 }
 
+static void touch_isr(void * arg) {
+    touch_wake = true;
+    touch_pad_clear_status();
+}
+
 void app_main(void)
 {
     printf("esp booted!\n");
 
     ESP_ERROR_CHECK(nvs_flash_init());
 
-    gpio_pad_select_gpio(LED_BUILTIN);                          // setup builtin led
-    gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);          // set led as an output
+    ESP_ERROR_CHECK(touch_pad_init());
+
+    ESP_ERROR_CHECK(touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER));
+    ESP_ERROR_CHECK(touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V));
+
+    ESP_ERROR_CHECK(touch_pad_config(TOUCH_PAD_GPIO33_CHANNEL, 600));
+
+    ESP_ERROR_CHECK(touch_pad_filter_start(10));
+
+    ESP_ERROR_CHECK(touch_pad_isr_register(touch_isr, NULL));
+
+    ESP_ERROR_CHECK(touch_pad_intr_enable());
+    //ESP_ERROR_CHECK(touch_pad_set_filter_period())
+
+    gpio_pad_select_gpio(LED_PIN);                              // setup builtin led
+    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);              // set led as an output
 
     adc1_config_width(ADC_WIDTH_12Bit);                         // set adc to 12 bits
     adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_11db);  // set attenuation to -11dB (0-3v)
 
     // get date from lifi...
 
-    printf("sampling data...\n");
+    //print_touch();
+
+    /*printf("sampling data...\n");
 
     struct timeval tv;
 
@@ -370,7 +416,7 @@ void app_main(void)
 
     time(&now);
 
-    printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
+    printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));*/
 
     // initialize spiffs
 
@@ -429,27 +475,31 @@ void app_main(void)
 
     delete_old_enins(epoch);
 
-    /*char * b64 = b64_encode("hi!", sizeof("hi!"));
-
-    printf("hi! => %s\n", b64);
-
-    free(b64);
-
-    b64 = (char *)b64_decode("aGkhAA==");
-
-    printf("aGkhAA== => %s\n", b64);
-
-    free(b64);*/
+    //ESP_ERROR_CHECK(esp_sleep_enable_touchpad_wakeup());
 
     // advertising loop
     while (true) {
-        gpio_set_level(LED_BUILTIN, 1);                             // turn builtin led on
+        if (touch_wake) {
+            printf("sampling data...\n");
+
+            struct timeval tv;
+            tv.tv_sec = derive_light_data();
+            settimeofday(&tv, NULL);
+
+            time_t now;
+            time(&now);
+
+            printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
+
+            touch_wake = false;
+        }
+        gpio_set_level(LED_PIN, 1);                                 // turn builtin led on
         ble_adapter_start_advertising();                            // start advertising
         vTaskDelay(10 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)
         ble_adapter_stop_advertising();                             // stop advertising
-        gpio_set_level(LED_BUILTIN, 0);                             // turn off builtin led
-        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(1000*1000));  // enable wakeup in 1 second
-        ESP_ERROR_CHECK(esp_light_sleep_start());                   // start sleeping
+        gpio_set_level(LED_PIN, 0);                                 // turn off builtin led
+        ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(270*1000));   // enable wakeup in 0.2 second
+        ESP_ERROR_CHECK(esp_light_sleep_start());                   // sleep
     }
     
 }

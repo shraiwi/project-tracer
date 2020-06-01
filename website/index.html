@@ -19,19 +19,24 @@
         </style>
     </head>
     <body>
-        <div id="card">
-        </div>
+        <div id="card"></div>
+        <h1>
+            <ol>
+                <li>click on the card to enable data transfer</li>
+                <li>place your tracer card on top of flashing box</li>
+                <li>wait for the tracer card to stop blinking</li>
+                <li>click on the card again to stop data transfer</li>
+            </ol>
+        </h1>
         <script>
-            let data = (Date.now() / 1000) | 0;
-
-            console.log(data);
+            let card = document.getElementById("card");
 
             //let data = 0b10101010101010101010101010101010;
 
             const settings = {
                 lo_time: 1,
                 head_len: 8,
-            }
+            };
 
             function toBitArray(number, numBits) {
                 let out = [];
@@ -43,7 +48,6 @@
 
             // transmits an array of data bits
             function tx(dataString) {
-                let card = document.body
                 const [lo, hi, head] = [settings.lo_time, settings.lo_time * 2, settings.lo_time * 3];
                 let frameSchedule = Array(settings.head_len).fill(head).concat(dataString.map(a => [1, 2][+a]));
                 let index = 0;
@@ -54,7 +58,10 @@
                         card.style.backgroundColor = ["black", "white"][index % 2];
 
                         if (index < frameSchedule.length) window.requestAnimationFrame(onFrame);
-                        else resolve()
+                        else {
+                            card.style.borderColor = "black";
+                            resolve()
+                        }
                     }
 
                     window.requestAnimationFrame(onFrame);
@@ -63,15 +70,22 @@
 
             
             async function transmit() {
-                console.log("transmitting data...");
-                let bitArray = toBitArray(data, 32);
-                console.log(bitArray);
-                while(1) {
-                    await tx(bitArray);
+                if (!("txfn" in this)) {
+                    let data = (Date.now() / 1000) | 0;
+                    let bitArray = toBitArray(data, 32);
+                    this.transmitting = false;
+                    let parentThis = this;
+                    let txfn = function () {
+                        if (parentThis.transmitting) tx(bitArray).then(txfn);
+                    };
+                    this.txfn = txfn;
                 }
-                console.log("done!");
+                this.transmitting ^= true;
+                if (this.transmitting) this.txfn();
+                else card.style.borderColor = "white";
             }
-            transmit();
+
+            card.addEventListener("click", transmit);
         </script>
     </body>
 </html>
