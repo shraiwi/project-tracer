@@ -71,18 +71,18 @@ void scan_cb(ble_adapter_scan_result res) {
     }
 }
 
-void scan_for_peers(uint32_t epoch) {
-    uint32_t enin = tracer_en_interval_number(epoch);
+void scan_for_peers(uint32_t epoch, uint32_t ms) {
+    uint32_t scanin = tracer_scan_interval_number(epoch);
 
     scanned_data = cvec_arrayof(tracer_datapair);
 
     ble_adapter_start_scanning();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(ms / portTICK_PERIOD_MS);
     ble_adapter_stop_scanning();
 
     cvec_crunch(scanned_data);  // free up unused memory
 
-    char * fname = b64_encode(&enin, sizeof(enin));
+    char * fname = b64_encode(&scanin, sizeof(scanin));
 
     fname = realloc(fname, sizeof(SPIFFS_ROOT) + 1 + strlen(fname));
 
@@ -374,12 +374,17 @@ static void touch_isr(void * arg) {
     touch_pad_clear_status();
 }
 
-void app_main(void)
-{
-    printf("esp booted!\n");
+// initialize gpio
+void init_gpio() {
+    gpio_pad_select_gpio(LED_PIN);                              // setup builtin led
+    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);              // set led as an output
 
-    ESP_ERROR_CHECK(nvs_flash_init());
+    adc1_config_width(ADC_WIDTH_12Bit);                         // set adc to 12 bits
+    adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_11db);  // set attenuation to -11dB (0-3v)
+}
 
+// initialize touch
+void init_touch() {
     ESP_ERROR_CHECK(touch_pad_init());
 
     ESP_ERROR_CHECK(touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER));
@@ -392,34 +397,10 @@ void app_main(void)
     ESP_ERROR_CHECK(touch_pad_isr_register(touch_isr, NULL));
 
     ESP_ERROR_CHECK(touch_pad_intr_enable());
-    //ESP_ERROR_CHECK(touch_pad_set_filter_period())
+}
 
-    gpio_pad_select_gpio(LED_PIN);                              // setup builtin led
-    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);              // set led as an output
-
-    adc1_config_width(ADC_WIDTH_12Bit);                         // set adc to 12 bits
-    adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_11db);  // set attenuation to -11dB (0-3v)
-
-    // get date from lifi...
-
-    //print_touch();
-
-    /*printf("sampling data...\n");
-
-    struct timeval tv;
-
-    tv.tv_sec = derive_light_data();
-
-    settimeofday(&tv, NULL);
-
-    time_t now;
-
-    time(&now);
-
-    printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));*/
-
-    // initialize spiffs
-
+// initialize spiffs fs
+void init_spiffs() {
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = SPIFFS_ROOT,
         .partition_label = NULL,
@@ -436,22 +417,39 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_spiffs_info(spiffs_conf.partition_label, &total, &used));
 
     printf("spiffs used %d/%d bytes.\n", used, total);
+}
 
-    // randomly generate a new mac address
-
+// randomizes the ble mac address
+void randomize_mac() {
     uint8_t * random_mac = rng_gen(6, NULL);
+
+    random_mac[0] |= 0xC0;
 
     printf("setting new random mac: ");
     print_hex_buffer(random_mac, 6);
     printf("\n");
     
-    ble_adapter_set_mac(random_mac);
+    ble_adapter_set_rand_mac(random_mac);
 
     free(random_mac);
+}
+
+void app_main(void)
+{
+    printf("esp booted!\n");
+
+    ESP_ERROR_CHECK(nvs_flash_init());
+
+    init_touch();           // initialize touch and activate callbacks
+    init_gpio();            // initialize GPIO
+
+    init_spiffs();          // initialize spiffs
 
     // initialize ble adapter
 
     ble_adapter_init();
+
+    randomize_mac();        // randomly generate a new mac address
 
     ble_adapter_register_scan_callback(&scan_cb);
 
@@ -459,23 +457,24 @@ void app_main(void)
 
     uint32_t epoch = get_epoch();
 
-    scan_for_peers(epoch);
+    scan_for_peers(epoch, 600);
 
     // generate ble payload
 
-    tracer_tek * tek = tracer_derive_tek(epoch);
+    tracer_tek tek = *tracer_derive_tek(epoch);
 
     tracer_datapair pair = tracer_derive_datapair(epoch, ble_adapter_get_adv_tx_power());
 
     tracer_ble_payload payload = tracer_derive_ble_payload(pair);
 
-    ble_adapter_add_raw(payload.value, payload.len);
+    ble_adapter_set_raw(payload.value, payload.len);
 
     // testing stuff
 
     delete_old_enins(epoch);
 
-    //ESP_ERROR_CHECK(esp_sleep_enable_touchpad_wakeup());
+    uint32_t last_datapair_epoch = epoch;
+    uint32_t last_scan_epoch = epoch;
 
     // advertising loop
     while (true) {
@@ -493,7 +492,30 @@ void app_main(void)
 
             touch_wake = false;
         }
+
         gpio_set_level(LED_PIN, 1);                                 // turn builtin led on
+        
+        epoch = get_epoch();
+
+        if (tracer_detect_tek_rollover(tek.epoch, epoch)) {
+            printf("tek rollover!\n");
+            tek = *tracer_derive_tek(epoch);
+        } 
+
+        if (tracer_detect_enin_rollover(last_datapair_epoch, epoch)) {
+            printf("enin rollover!\n");
+            pair = tracer_derive_datapair(epoch, ble_adapter_get_adv_tx_power());
+            payload = tracer_derive_ble_payload(pair);
+            ble_adapter_set_raw(payload.value, payload.len);
+            last_datapair_epoch = epoch;
+        }
+
+        if (tracer_detect_scanin_rollover(last_scan_epoch, epoch)) {
+            printf("scanin rollover!\n");
+            scan_for_peers(epoch, 600);
+            last_scan_epoch = epoch;
+        }
+
         ble_adapter_start_advertising();                            // start advertising
         vTaskDelay(10 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)
         ble_adapter_stop_advertising();                             // stop advertising

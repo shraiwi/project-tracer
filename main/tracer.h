@@ -13,26 +13,30 @@ void print_hex_buffer(void * data, size_t data_len) {
  * tracer API
  */
 
-// something in here is causing the ESP32 to crash silently, haha. HAHA.
-// probably has to do with the janky memory handling going on here, maybe a stack overflow?
-// wait, nevermind. this works. or does it? i really can't tell.
-
-// i smell a memory leak somewhere in this coooodeee
-
 // gets size (in bytes) of an object's member.
 #define sizeof_member(type, member) sizeof(((type*)0)->member)
 
-// settings
-#define TRACER_TEK_STORE_PERIOD 14  // how many days to store the keys for.
-#define TRACER_ENIN_EXPIRY      (TRACER_TEK_STORE_PERIOD * 24 / (60 * 10))    // how many enintervalnumbers to store data for
-#define TRACER_MAJOR_VERSION    1   // standard major version x.0
-#define TRACER_MINOR_VERSION    0   // standard minor version 0.x
+// settings (timing)
+#define TRACER_SCAN_INTERVAL    1       // how many minutes in between scans
+#define TRACER_TEK_INTERVAL     2       // how many minutes until a new tek is generated. must be divisible by TRACER_ENIN_INTERVAL.
+#define TRACER_ENIN_INTERVAL    1       // how many minutes each eninterval is.
+#define TRACER_TEK_STORE_PERIOD 14      // how many tek intervals to store the keys for.
+#define TRACER_ENINS_PER_DAY    (TRACER_TEK_INTERVAL / TRACER_ENIN_INTERVAL)        // how many enintervals are in a day
+#define TRACER_ENIN_EXPIRY      (TRACER_TEK_STORE_PERIOD * TRACER_ENINS_PER_DAY)    // how many enintervalnumbers to store data for
+
+// settings (metadata)
+#define TRACER_MAJOR_VERSION    1       // standard major version x.0
+#define TRACER_MINOR_VERSION    0       // standard minor version 0.x
 
 // constants
 #define RPI_STRING  "EN-RPI"
 #define RPIK_STRING "EN-RPIK"
 #define AEM_STRING  "EN-AEM"
 #define AEMK_STRING "EN-AEMK"
+
+#if TRACER_TEK_INTERVAL % TRACER_ENIN_INTERVAL !=  0
+#error The tracer tek interval must be divisible by the tracer enin interval!
+#endif
 
 // MAC address
 typedef struct {
@@ -43,7 +47,7 @@ typedef struct {
  * Temporary Exposure Key
  */
 typedef struct {
-    uint32_t en_interval_num;
+    uint32_t epoch;
     uint8_t value[16];
 } tracer_tek;
 
@@ -118,12 +122,12 @@ typedef struct {
 // remember: TEK + epoch => RPIK => RPI =|
 //                |=======> AEMK =====> AEM
 
-uint32_t tracer_tek_rolling_period = 144;
 tracer_tek tracer_tek_array[TRACER_TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
 
 tracer_keypair tracer_current_keypair;
 
+// adds a record to a tracer ble payload
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
     ble_payload->value[ble_payload->len++] = data_len + 1;
     ble_payload->value[ble_payload->len++] = type;
@@ -131,8 +135,14 @@ void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t typ
     ble_payload->len += data_len;
 }
 
+// gets the enintervalnumber
 uint32_t tracer_en_interval_number(uint32_t epoch) {
-    return (uint32_t)(epoch / (60 * 10));
+    return (uint32_t)(epoch / (60 * TRACER_ENIN_INTERVAL));
+}
+
+// gets the scan interval number. this can be used to name scanfiles.
+uint32_t tracer_scan_interval_number(uint32_t epoch) {
+    return (uint32_t)(epoch / (60 * TRACER_SCAN_INTERVAL));
 }
 
 tracer_rpik tracer_derive_rpik(tracer_tek tek) {
@@ -246,12 +256,17 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
 tracer_tek * tracer_derive_tek(uint32_t epoch) {
     tracer_tek * out = &tracer_tek_array[tracer_tek_array_head++];
     tracer_tek_array_head %= TRACER_TEK_STORE_PERIOD;
-    out->en_interval_num = tracer_en_interval_number(epoch);
+    out->epoch = epoch;
     rng_gen(sizeof(out->value), out->value);
 
     tracer_current_keypair = tracer_derive_keypair(*out);
 
     return out;
+}
+
+// gets the latest tek
+tracer_tek tracer_get_latest_tek() {
+    return tracer_tek_array[(tracer_tek_array_head ? tracer_tek_array_head : TRACER_TEK_STORE_PERIOD) - 1];
 }
 
 // parses a ble payload and derives an rpi and aem from it. if the parsing is completed, the function returns true.
@@ -290,6 +305,22 @@ bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * data
     }
 
     return output_valid && payload_valid;
+}
+
+// detects if there needs to be new datapair generated
+bool tracer_detect_enin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
+    return (tracer_en_interval_number(last_epoch) < tracer_en_interval_number(current_epoch));
+}
+
+// detects if there needs to be new scan.
+bool tracer_detect_scanin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
+    return (tracer_scan_interval_number(last_epoch) < tracer_scan_interval_number(current_epoch));
+}
+
+// detects if there needs to be a new tek generated
+bool tracer_detect_tek_rollover(uint32_t last_epoch, uint32_t current_epoch) {
+    uint32_t last_enin = tracer_en_interval_number(last_epoch), current_enin = tracer_en_interval_number(current_epoch);
+    return ((current_enin > last_enin) && ((current_enin % TRACER_ENINS_PER_DAY) == 0)) || (current_enin - last_enin >= TRACER_ENINS_PER_DAY);
 }
 
 /*  example data:
