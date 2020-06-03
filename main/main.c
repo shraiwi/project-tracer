@@ -1,12 +1,3 @@
-/* Hello World Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,6 +19,8 @@
 #include "time.h"
 #include "limits.h"
 
+#include "passwords.h"      // this file is in .gitignore for me. you probably want to create your own passwords.h and input your own data.
+#include "wifi_adapter.h"
 #include "ble_adapter.h"
 #include "storage.h"
 #include "tracer.h"
@@ -37,6 +30,8 @@
 #define PHOTOCELL_PIN       34
 #define TOUCH_PIN           33
 #define SPIFFS_ROOT         "/spiffs"
+
+static const char * TAG = "app_main";
 
 tracer_datapair * scanned_data = NULL;
 bool touch_wake = false;
@@ -62,7 +57,7 @@ void scan_cb(ble_adapter_scan_result res) {
     if (tracer_parse_ble_payload(payload, &pair)) {
         bool rpi_exists = false;
 
-        for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
+        for (size_t i = 0; i < cvec_len(scanned_data); i++) {
             rpi_exists |= tracer_compare_datapairs(pair, scanned_data[i]);
             if (rpi_exists) break;
         }
@@ -90,14 +85,14 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
     memcpy(fname, SPIFFS_ROOT, sizeof(SPIFFS_ROOT)-1);
     fname[sizeof(SPIFFS_ROOT)-1] = '/';
 
-    printf("writing to %s...\n", fname);
+    ESP_LOGI(TAG, "writing to %s...", fname);
 
     FILE * scan_record = fopen(fname, "w");
 
     free(fname);
 
     if (scan_record == NULL) {
-        printf("\tfile null!\n");
+        ESP_LOGE(TAG, "\tfile null!");
 
         fclose(scan_record);
         cvec_free(scanned_data);
@@ -105,47 +100,34 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
         return;
     }
 
-    for (size_t i = 0; i < cvec_sizeof(scanned_data); i++) {
-        printf("peer %d\n\trpi: ", i);
-        print_hex_buffer(scanned_data[i].rpi.value, sizeof(scanned_data[i].rpi.value));
-        printf("\n\taem: ");
-        print_hex_buffer(scanned_data[i].aem.value, sizeof(scanned_data[i].aem.value));
-        printf("\n");
-        fwrite(&scanned_data[i], sizeof(tracer_datapair), 1, scan_record);
-        //if (tracer_verify(scanned_data[i], match_tek, NULL)) {
-        //    printf("\tmatches test tek!!\n");
-        //}
-    }
+    ESP_LOGI(TAG, "found %d peers.", cvec_len(scanned_data));
+
+    fwrite(scanned_data, cvec_sizeof(scanned_data), 1, scan_record);
 
     fclose(scan_record);
 
     cvec_free(scanned_data);
 }
 
-void print_touch() {
-    printf("touch values...");
-    for (size_t i = 0; i < 2000; i++) {
-        uint8_t raw_val;
-        uint16_t filtered_val;
-        touch_pad_read_raw_data(TOUCH_PAD_GPIO33_CHANNEL, &raw_val);
-        touch_pad_read_filtered(TOUCH_PAD_GPIO33_CHANNEL, &filtered_val);
-        printf("\t%d,\t%d\n", raw_val, filtered_val);
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
+// saves the teks to spiffs.
+void save_teks() {
+    FILE * tek_file = fopen(SPIFFS_ROOT"/tek_file", "w");
+    fwrite(tracer_tek_array, 1, sizeof(tracer_tek_array), tek_file);
+    fclose(tek_file);
 }
 
 void delete_old_enins(uint32_t epoch) {
 
     uint32_t enin = tracer_en_interval_number(epoch);
 
-    printf("scanning files...\n");
+    ESP_LOGI(TAG, "scanning files...");
 
     DIR * root_dir = opendir(SPIFFS_ROOT);
     struct dirent * de;
 
     while ((de = readdir(root_dir)) != NULL) {
         uint32_t * file_enin = b64_decode(de->d_name);
-        printf("\tfile: %s\n\tderived enin: %u\n", de->d_name, *file_enin);
+        ESP_LOGI(TAG, "\tfile: %s\n\tderived enin: %u", de->d_name, *file_enin);
         free(file_enin);
     }
 
@@ -226,7 +208,7 @@ uint32_t derive_light_data() {
 
                     //printf("\tnum bins: %d\n", cvec_sizeof(bins));
 
-                    if (cvec_sizeof(bins) == 0) {
+                    if (cvec_len(bins) == 0) {
                         //printf("\tnew bin!\n");
                         histogram_bin dat;
                         dat.value = delta;
@@ -235,7 +217,7 @@ uint32_t derive_light_data() {
                         //printf("bin:\n\tvalue: %d\n\ttcount: %d\n", dat.value, dat.count);
                     }
 
-                    size_t num_bins = cvec_sizeof(bins);
+                    size_t num_bins = cvec_len(bins);
 
                     bool matched_to_bin = false;
 
@@ -274,11 +256,11 @@ uint32_t derive_light_data() {
     }
 
     // sanity check to get rid of null data
-    if (cvec_sizeof(bins) == 0) {
+    if (cvec_len(bins) == 0) {
         cvec_free(bins);
         cvec_free(times);
 
-        printf("no valid data found!\n");
+        ESP_LOGW(TAG, "no valid data found!");
 
         ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
         return 0;
@@ -289,7 +271,7 @@ uint32_t derive_light_data() {
     // indices of the top 3 bins
     size_t top_bins[4] = { 0 };
 
-    for (size_t i = 0; i < cvec_sizeof(bins); i++) {
+    for (size_t i = 0; i < cvec_len(bins); i++) {
         histogram_bin * bin = &bins[i];
 
         //printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
@@ -312,7 +294,7 @@ uint32_t derive_light_data() {
 
     for (size_t i = 0; i < 3; i++) {
         histogram_bin * bin = &bins[top_bins[i]];
-        printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        ESP_LOGI(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
         for (size_t j = 0; j < 3; j++) {
             if (bin->value <= bit_times[j]) {
                 memmove(&bit_times[j+1], &bit_times[j], sizeof(bit_times) - sizeof(size_t) * j);
@@ -330,7 +312,7 @@ uint32_t derive_light_data() {
     uint8_t * data = cvec_arrayof(uint8_t);
 
     //printf("light data:\n");
-    for (size_t i = 0; i < cvec_sizeof(times); i++) {
+    for (size_t i = 0; i < cvec_len(times); i++) {
         size_t delta = times[i];
         for (size_t j = 0; j < 3; j++) {
             if (delta > (bit_times[j] - hist_range) && delta < (bit_times[j] + hist_range)) {
@@ -345,7 +327,7 @@ uint32_t derive_light_data() {
     uint32_t packet_data = 0;
     uint8_t packet_head = 0;
 
-    for (size_t i = 1; i < cvec_sizeof(data); i++) {
+    for (size_t i = 1; i < cvec_len(data); i++) {
         //uint8_t last_bit = data[i-1];
         uint8_t bit = data[i];
 
@@ -416,7 +398,7 @@ void init_spiffs() {
 
     ESP_ERROR_CHECK(esp_spiffs_info(spiffs_conf.partition_label, &total, &used));
 
-    printf("spiffs used %d/%d bytes.\n", used, total);
+    ESP_LOGI(TAG, "spiffs used %d/%d bytes.", used, total);
 }
 
 // randomizes the ble mac address
@@ -425,9 +407,8 @@ void randomize_mac() {
 
     random_mac[0] |= 0xC0;
 
-    printf("setting new random mac: ");
-    print_hex_buffer(random_mac, 6);
-    printf("\n");
+    ESP_LOGI(TAG, "setting new random mac.");
+    //print_hex_buffer(random_mac, 6);
     
     ble_adapter_set_rand_mac(random_mac);
 
@@ -436,7 +417,7 @@ void randomize_mac() {
 
 void app_main(void)
 {
-    printf("esp booted!\n");
+    ESP_LOGI(TAG, "esp booted!");
 
     ESP_ERROR_CHECK(nvs_flash_init());
 
@@ -444,6 +425,17 @@ void app_main(void)
     init_gpio();            // initialize GPIO
 
     init_spiffs();          // initialize spiffs
+
+    // initialize wifi
+
+    wifi_adapter_init();
+
+    wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
+
+    while (!wifi_adapter_get_flag(WIFI_ADAPTER_CONNECTED_FLAG)) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "waiting for wifi connect...");
+    }
 
     // initialize ble adapter
 
@@ -479,7 +471,7 @@ void app_main(void)
     // advertising loop
     while (true) {
         if (touch_wake) {
-            printf("sampling data...\n");
+            ESP_LOGI(TAG, "sampling data...");
 
             struct timeval tv;
             tv.tv_sec = derive_light_data();
@@ -488,7 +480,7 @@ void app_main(void)
             time_t now;
             time(&now);
 
-            printf("\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
+            ESP_LOGI(TAG, "\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
 
             touch_wake = false;
         }
@@ -498,12 +490,12 @@ void app_main(void)
         epoch = get_epoch();
 
         if (tracer_detect_tek_rollover(tek.epoch, epoch)) {
-            printf("tek rollover!\n");
+            ESP_LOGI(TAG, "tek rollover!");
             tek = *tracer_derive_tek(epoch);
         } 
 
         if (tracer_detect_enin_rollover(last_datapair_epoch, epoch)) {
-            printf("enin rollover!\n");
+            ESP_LOGI(TAG, "enin rollover!");
             pair = tracer_derive_datapair(epoch, ble_adapter_get_adv_tx_power());
             payload = tracer_derive_ble_payload(pair);
             ble_adapter_set_raw(payload.value, payload.len);
@@ -511,7 +503,7 @@ void app_main(void)
         }
 
         if (tracer_detect_scanin_rollover(last_scan_epoch, epoch)) {
-            printf("scanin rollover!\n");
+            ESP_LOGI(TAG, "scanin rollover!");
             scan_for_peers(epoch, 600);
             last_scan_epoch = epoch;
         }

@@ -103,12 +103,18 @@ void * _cvec_last(void * cvec) {
 }
 
 // get the allocated memory in an array
-size_t cvec_get_allocated(void * cvec) {
+inline size_t cvec_get_allocated(void * cvec) {
     return ((cvec_header *)(cvec - sizeof(cvec_header)))->item_capacity;
 }
 
+// get the memory taken up by the data in a cvec.
+inline size_t cvec_sizeof(void * cvec) {
+    cvec_header * header = (cvec_header *)(cvec - sizeof(cvec_header));
+    return header->head * header->item_len;
+}
+
 // gets the number of items in an array
-size_t cvec_sizeof(void * cvec) {
+inline size_t cvec_len(void * cvec) {
     return ((cvec_header *)(cvec - sizeof(cvec_header)))->head;
 }
 

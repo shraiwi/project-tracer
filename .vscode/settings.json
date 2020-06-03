@@ -25,7 +25,8 @@
     "utility": "cpp",
     "cstdio": "c",
     "string": "c",
-    "string_view": "c"
+    "string_view": "c",
+    "sstream": "cpp"
   },
   "idf.adapterTargetName": "esp32",
   "cmake.configureOnOpen": false,

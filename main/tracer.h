@@ -3,12 +3,6 @@
 #ifndef _TRACER_H_
 #define _TRACER_H_
 
-void print_hex_buffer(void * data, size_t data_len) {
-    for (int i = 0; i < data_len; i++) {
-        printf("%02x", ((uint8_t*)data)[i]);
-    }
-}
-
 /**
  * tracer API
  */
