@@ -29,11 +29,13 @@ static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, 
         }
     } else if (event_base == IP_EVENT) {
         switch (event_id) {
-            case IP_EVENT_STA_GOT_IP:
+            case IP_EVENT_STA_GOT_IP: {
                 ip_event_got_ip_t * event = (ip_event_got_ip_t *)event_data;
                 ESP_LOGI(TAG, "got ip: %s.", ip4addr_ntoa(&event->ip_info.ip));
                 wifi_adapter_set_flag(WIFI_ADAPTER_CONNECTED_FLAG);
                 wifi_adapter_clear_flag(WIFI_ADAPTER_CONNECT_FAIL_FLAG);
+                break;
+            }
         }
     }
 }

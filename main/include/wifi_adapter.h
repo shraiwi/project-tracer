@@ -13,9 +13,9 @@
 #define WIFI_ADAPTER_CHECK_READY() if (!wifi_adapter_get_flag(WIFI_ADAPTER_READY_FLAG)) { ESP_LOGE(TAG, "wifi adapter not ready!"); return; } static_assert(true, "")
 
 // flags
-#define WIFI_ADAPTER_READY_FLAG         BIT(0)
-#define WIFI_ADAPTER_CONNECTED_FLAG     BIT(1)
-#define WIFI_ADAPTER_CONNECT_FAIL_FLAG  BIT(2)
+#define WIFI_ADAPTER_READY_FLAG         GET_BIT(0)
+#define WIFI_ADAPTER_CONNECTED_FLAG     GET_BIT(1)
+#define WIFI_ADAPTER_CONNECT_FAIL_FLAG  GET_BIT(2)
 
 inline void wifi_adapter_set_flag(uint8_t flag);
 inline void wifi_adapter_clear_flag(uint8_t flag);

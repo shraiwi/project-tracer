@@ -1,27 +1,6 @@
-#include "nvs_flash.h"
-#include "esp_err.h"
-#include "esp_log.h"
-#include "esp_system.h"
-
-#include "esp_bt.h"
-#include "esp_bt_main.h"
-#include "esp_gap_ble_api.h"
-
-#include "memory.h"
-
-#ifndef _BLE_ADAPTER_H_
-#define _BLE_ADAPTER_H_
-
-#define BLE_ADAPTER_CHECK_READY() if (!ble_adapter_ready) { ESP_LOGE(TAG, "ble adapter not ready!"); return; } static_assert(true, "")
+#include "ble_adapter.h"
 
 static const char *TAG = "ble_adapter";
-
-typedef struct {
-    uint8_t * adv_data;
-    uint8_t adv_data_len;
-    uint8_t mac_addr[6];
-    int8_t rssi;
-} ble_adapter_scan_result;
 
 static esp_ble_adv_params_t ble_adapter_adv_params = {
     .adv_int_min = 0x1e0,
@@ -40,9 +19,9 @@ static esp_ble_scan_params_t ble_adapter_scan_params = {
     .scan_window            = 0x10
 };
 
-uint8_t ble_adapter_adv_data[ESP_BLE_ADV_DATA_LEN_MAX];
-uint8_t ble_adapter_adv_data_head = 0;
-void (*ble_adapter_scan_cb)(ble_adapter_scan_result) = NULL;
+static uint8_t ble_adapter_adv_data[ESP_BLE_ADV_DATA_LEN_MAX];
+static uint8_t ble_adapter_adv_data_head = 0;
+static void (*ble_adapter_scan_cb)(ble_adapter_scan_result) = NULL;
 bool ble_adapter_ready = false;
 
 static void ble_adapter_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
@@ -217,5 +196,3 @@ int8_t ble_adapter_get_adv_tx_power() {
     ESP_LOGI(TAG, "got the advertising tx power.");
     return (esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV) - 4) * 3;
 }
-
-#endif

@@ -339,7 +339,7 @@ bool tracer_verify(tracer_datapair datapair, tracer_tek tek, tracer_metadata * o
     bool valid = memcmp(decrypted_rpik, RPI_STRING, sizeof(RPI_STRING)) == 0;
 
     if (valid && output_metadata) {
-        uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
+        //uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
         tracer_aemk aemk = tracer_derive_aemk(tek);
         flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, datapair.rpi.value, datapair.aem.value, sizeof(datapair.aem.value), output_metadata->value);
     }

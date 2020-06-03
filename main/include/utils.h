@@ -6,7 +6,7 @@
 #ifndef _UTILS_H_
 #define _UTILS_H_
 
-#define BIT(n) (1<<n)
+#define GET_BIT(n) (1<<n)
 
 // prints a hex buffer to stdout.
 void print_hex_buffer(void * data, size_t data_len) {
