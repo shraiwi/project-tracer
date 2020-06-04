@@ -2,5 +2,5 @@ build/
 sdkconfig
 sdkconfig.old
 data/comms.ods
-main/passwords.h
+**/passwords.h
 .vscode/

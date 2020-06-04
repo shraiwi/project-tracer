@@ -23,6 +23,8 @@
 #include "wifi_adapter.h"
 #include "ble_adapter.h"
 #include "storage.h"
+#include "timesync.h"
+#include "http.h"
 #include "tracer.h"
 #include "cvec.h"
 
@@ -66,6 +68,10 @@ void scan_cb(ble_adapter_scan_result res) {
     }
 }
 
+void http_get_cb(char * data, size_t head) {
+    printf("%s", data);
+}
+
 void scan_for_peers(uint32_t epoch, uint32_t ms) {
     uint32_t scanin = tracer_scan_interval_number(epoch);
 
@@ -85,7 +91,7 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
     memcpy(fname, SPIFFS_ROOT, sizeof(SPIFFS_ROOT)-1);
     fname[sizeof(SPIFFS_ROOT)-1] = '/';
 
-    ESP_LOGI(TAG, "writing to %s...", fname);
+    ESP_LOGD(TAG, "writing to %s...", fname);
 
     FILE * scan_record = fopen(fname, "w");
 
@@ -100,7 +106,7 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
         return;
     }
 
-    ESP_LOGI(TAG, "found %d peers.", cvec_len(scanned_data));
+    ESP_LOGV(TAG, "found %d peers.", cvec_len(scanned_data));
 
     fwrite(scanned_data, cvec_sizeof(scanned_data), 1, scan_record);
 
@@ -120,22 +126,24 @@ void delete_old_enins(uint32_t epoch) {
 
     uint32_t enin = tracer_en_interval_number(epoch);
 
-    ESP_LOGI(TAG, "scanning files...");
+    ESP_LOGD(TAG, "scanning files...");
 
     DIR * root_dir = opendir(SPIFFS_ROOT);
     struct dirent * de;
 
     while ((de = readdir(root_dir)) != NULL) {
         uint32_t * file_enin = b64_decode(de->d_name);
-        ESP_LOGI(TAG, "\tfile: %s\n\tderived enin: %u", de->d_name, *file_enin);
+        ESP_LOGD(TAG, "\tfile: %s\n\tderived enin: %u", de->d_name, *file_enin);
         free(file_enin);
     }
 
     closedir(root_dir);
 }
 
-uint32_t derive_light_data() {
+char * derive_light_data(size_t timeout) {
     //printf("sampling adc...\n");
+
+    adc_power_on();
 
     TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
     ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
@@ -143,8 +151,8 @@ uint32_t derive_light_data() {
     const int hist_range = 7;       // histogram range
     const int chunk_size = 6;       // 64
     const size_t time_buf_size = 5; // 32
-    const size_t timeout = 5000;    // timeout after 5 seconds
     const uint16_t min_range = 200; 
+    const uint16_t min_count = 4;
 
     uint16_t chunk_data[1<<chunk_size];
     uint16_t chunk_head = 0;
@@ -156,7 +164,11 @@ uint32_t derive_light_data() {
 
     size_t * times = cvec_arrayof(size_t);
 
+    uint8_t * data = cvec_arrayof(uint8_t);
+
     size_t i = 0;
+
+    char * packet_data = cvec_arrayof(char);
 
     typedef struct {
         int value, count;
@@ -168,7 +180,7 @@ uint32_t derive_light_data() {
         int64_t next_tick = get_micros() + 1000;
         chunk_data[chunk_head] = adc1_get_raw(ADC1_CHANNEL_6);
 
-        gpio_set_level(LED_PIN, 1 & (get_micros() >> 17));  // blink LED approximately every 250ms
+        gpio_set_level(LED_PIN, 1 & (get_micros() >> 16));  // blink LED approximately every 125ms
 
         //printf("%d", chunk_data[])
 
@@ -255,15 +267,12 @@ uint32_t derive_light_data() {
         while (get_micros() < next_tick) { }
     }
 
+    adc_power_off();
+
     // sanity check to get rid of null data
     if (cvec_len(bins) == 0) {
-        cvec_free(bins);
-        cvec_free(times);
-
         ESP_LOGW(TAG, "no valid data found!");
-
-        ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
-        return 0;
+        goto ret_packet;
     }
     
     //printf("getting top bins...\n");
@@ -294,7 +303,7 @@ uint32_t derive_light_data() {
 
     for (size_t i = 0; i < 3; i++) {
         histogram_bin * bin = &bins[top_bins[i]];
-        ESP_LOGI(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        ESP_LOGD(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
         for (size_t j = 0; j < 3; j++) {
             if (bin->value <= bit_times[j]) {
                 memmove(&bit_times[j+1], &bit_times[j], sizeof(bit_times) - sizeof(size_t) * j);
@@ -304,12 +313,13 @@ uint32_t derive_light_data() {
         }
     }
 
-    /*printf("bin values...\n");
+    /*printf("bin values...\n");*/
     for (size_t i = 0; i < 3; i++) {
-        printf("\tbit %d = %d\n", i, bit_times[i]);
-    }*/
-
-    uint8_t * data = cvec_arrayof(uint8_t);
+        if (bins[bit_times[i]].count < min_count) {
+            ESP_LOGW(TAG, "no valid data found!");
+            goto ret_packet;
+        }
+    }
 
     //printf("light data:\n");
     for (size_t i = 0; i < cvec_len(times); i++) {
@@ -323,32 +333,48 @@ uint32_t derive_light_data() {
         }
     }
 
-    uint16_t header_counter = 0;
-    uint32_t packet_data = 0;
-    uint8_t packet_head = 0;
+    size_t header_counter = 0;
+
+    cvec_append(packet_data, 0);
+
+    uint8_t bit_head = 0;
 
     for (size_t i = 1; i < cvec_len(data); i++) {
         //uint8_t last_bit = data[i-1];
         uint8_t bit = data[i];
-
-        // on packet data,
-        if (header_counter >= 6 && bit != 2) {
-            packet_data |= bit << packet_head++;
-            if (packet_head == 31) break;
-        } else {
-            // increment header counter
-            if (bit == 2) header_counter++;
-            else header_counter = 0;
+        ESP_LOGI(TAG, "\tbit %d", bit);
+        
+        if (bit == 2) {
+            if (cvec_len(packet_data) > 1) break;       // if a 2-bit is encountered when the data buffer is written to, assume that the transmission has ended.
+            header_counter++;
+        } else { 
+            // on packet,
+            if (header_counter >= 6) {
+                packet_data[cvec_len(packet_data)-1] |= bit << bit_head++;  // add data to the buffer
+                if (bit_head == 8) {                                        // handle byte rollover
+                    cvec_append(packet_data, 0);
+                    bit_head = 0;
+                }
+            }
+ 
+            header_counter = 0;
         }
     }
+
+    ret_packet:
 
     cvec_free(data);
     cvec_free(bins);
     cvec_free(times);
 
+    char * out = calloc(1, cvec_sizeof(packet_data) + 1);
+    memcpy(out, packet_data, cvec_sizeof(packet_data));
+
+    cvec_free(packet_data);
+
     ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
 
-    return packet_data;
+    return out;
 }
 
 static void touch_isr(void * arg) {
@@ -398,7 +424,7 @@ void init_spiffs() {
 
     ESP_ERROR_CHECK(esp_spiffs_info(spiffs_conf.partition_label, &total, &used));
 
-    ESP_LOGI(TAG, "spiffs used %d/%d bytes.", used, total);
+    ESP_LOGV(TAG, "spiffs used %d/%d bytes.", used, total);
 }
 
 // randomizes the ble mac address
@@ -407,7 +433,7 @@ void randomize_mac() {
 
     random_mac[0] |= 0xC0;
 
-    ESP_LOGI(TAG, "setting new random mac.");
+    ESP_LOGV(TAG, "setting new random mac.");
     //print_hex_buffer(random_mac, 6);
     
     ble_adapter_set_rand_mac(random_mac);
@@ -424,6 +450,8 @@ void app_main(void)
     init_touch();           // initialize touch and activate callbacks
     init_gpio();            // initialize GPIO
 
+    adc_power_off();        // turn of adc
+
     init_spiffs();          // initialize spiffs
 
     // initialize wifi
@@ -434,8 +462,20 @@ void app_main(void)
 
     while (!wifi_adapter_get_flag(WIFI_ADAPTER_CONNECTED_FLAG)) {
         vTaskDelay(500 / portTICK_PERIOD_MS);
-        ESP_LOGI(TAG, "waiting for wifi connect...");
+        ESP_LOGD(TAG, "waiting for wifi connect...");
     }
+
+    timesync_sync();
+
+    time_t now;
+    time(&now);
+
+    ESP_LOGI(TAG, "date: %s", ctime(&now));
+
+    http_get("example.com", "80", "/", http_get_cb);
+    
+    wifi_adapter_disconnect();
+    wifi_adapter_stop();
 
     // initialize ble adapter
 
@@ -471,18 +511,15 @@ void app_main(void)
     // advertising loop
     while (true) {
         if (touch_wake) {
-            ESP_LOGI(TAG, "sampling data...");
-
-            struct timeval tv;
-            tv.tv_sec = derive_light_data();
-            settimeofday(&tv, NULL);
-
-            time_t now;
-            time(&now);
-
-            ESP_LOGI(TAG, "\tlight data: %ld\n\tdate: %s", tv.tv_sec, ctime(&now));
-
             touch_wake = false;
+
+            ESP_LOGI(TAG, "scanning for light data.");
+
+            char * data = derive_light_data(10000); // scan for light data for 10 seconds
+
+            ESP_LOGI(TAG, "recieved light data %s.", data);
+
+            free(data);
         }
 
         gpio_set_level(LED_PIN, 1);                                 // turn builtin led on

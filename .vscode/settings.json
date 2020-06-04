@@ -26,7 +26,10 @@
     "cstdio": "c",
     "string": "c",
     "string_view": "c",
-    "sstream": "cpp"
+    "sstream": "cpp",
+    "*.ipp": "cpp",
+    "storage.h": "c",
+    "http.h": "c"
   },
   "idf.adapterTargetName": "esp32",
   "cmake.configureOnOpen": false,

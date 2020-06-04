@@ -8,6 +8,10 @@
 
 #define GET_BIT(n) (1<<n)
 
+#define SET_FLAG(var, flag)     var |= flag
+#define CLEAR_FLAG(var, flag)   var &= ~flag
+#define GET_FLAG(var, flag)     var & flag
+
 // prints a hex buffer to stdout.
 void print_hex_buffer(void * data, size_t data_len) {
     for (int i = 0; i < data_len; i++) {
