@@ -36,9 +36,10 @@
             //let data = 0b10101010101010101010101010101010;
 
             const settings = {
-                lo_time: 1,
-                head_len: 8,
-                tx_data: "hello world!",
+                lo_time: 2,
+                head_len: 4,
+                end_len: 2,
+                tx_data: "oops i almost put my wifi password here haha",
                 card_div: document.getElementById("card"),
                 progess_text: document.getElementById("transferProgress"),
             };
@@ -65,7 +66,7 @@
 
                 // format is head => data => head
 
-                let frameSchedule = Array(settings.head_len).fill(head).concat(dataString.map(a => [1, 2][+a])).concat(Array(settings.head_len).fill(head));
+                let frameSchedule = Array(settings.head_len).fill(head).concat(dataString.map(a => [lo, hi][+a])).concat(Array(settings.end_len).fill(head));
                 let averageTime = 0;
                 let lastFrame = performance.now();
 

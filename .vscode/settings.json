@@ -29,7 +29,8 @@
     "sstream": "cpp",
     "*.ipp": "cpp",
     "storage.h": "c",
-    "http.h": "c"
+    "http.h": "c",
+    "netdb.h": "c"
   },
   "idf.adapterTargetName": "esp32",
   "cmake.configureOnOpen": false,
