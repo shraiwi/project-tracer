@@ -24,6 +24,7 @@
 #include "ble_adapter.h"
 #include "storage.h"
 #include "timesync.h"
+#include "flasher.h"
 #include "http.h"
 #include "tracer.h"
 #include "cvec.h"
@@ -149,7 +150,7 @@ char * derive_light_data(size_t timeout) {
     ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
 
     const int hist_range = 7;       // histogram range
-    const int chunk_size = 6;       // 64
+    const int chunk_size = 7;       // 128ms
     const size_t time_buf_size = 5; // 32
     const uint16_t min_range = 200; 
     const uint16_t min_count = 4;
@@ -200,62 +201,62 @@ char * derive_light_data(size_t timeout) {
                 // iterate over the chunk
                 for (uint16_t j = 0; j < 1 << chunk_size; j++) {
 
-                chunk_data[j] -= chunk_min;                     // shift the data down
+                    chunk_data[j] -= chunk_min;                     // shift the data down
 
-                bool val = chunk_data[j] > chunk_threshold;     // determine if the bit is high or low
+                    bool val = chunk_data[j] > chunk_threshold;     // determine if the bit is high or low
 
-                if (last_value == -1) last_value = val;         // set initial value
+                    if (last_value == -1) last_value = val;         // set initial value
 
-                // if there's a bit flip,
-                if (val != last_value) {
-                    //printf("\tbit flip!\n");
+                    // if there's a bit flip,
+                    if (val != last_value) {
+                        //printf("\tbit flip!\n");
 
-                    size_t time = i - (1 << chunk_size) + j;   // calculate the delta time
+                        size_t time = i - (1 << chunk_size) + j;   // calculate the delta time
 
-                    if (last_time == 0) last_time = time;      // set initial values
+                        if (last_time == 0) last_time = time;      // set initial values
 
-                    size_t delta = time - last_time;
+                        size_t delta = time - last_time;
 
-                    cvec_append(times, delta);
+                        cvec_append(times, delta);
 
-                    //printf("\tnum bins: %d\n", cvec_sizeof(bins));
+                        //printf("\tnum bins: %d\n", cvec_sizeof(bins));
 
-                    if (cvec_len(bins) == 0) {
-                        //printf("\tnew bin!\n");
-                        histogram_bin dat;
-                        dat.value = delta;
-                        dat.count = 1;
-                        cvec_append(bins, dat);
-                        //printf("bin:\n\tvalue: %d\n\ttcount: %d\n", dat.value, dat.count);
-                    }
-
-                    size_t num_bins = cvec_len(bins);
-
-                    bool matched_to_bin = false;
-
-                    for (size_t k = 0; k < num_bins; k++) {
-                        histogram_bin * bin = &bins[k];
-                        if ((delta > (bin->value - hist_range)) && (delta < (bin->value + hist_range))) {
-                            bin->value = (bin->value * 3 + delta) / 4;
-                            bin->count++;
-                            
-                            matched_to_bin = true;
-                            break;
+                        if (cvec_len(bins) == 0) {
+                            //printf("\tnew bin!\n");
+                            histogram_bin dat;
+                            dat.value = delta;
+                            dat.count = 1;
+                            cvec_append(bins, dat);
+                            //printf("bin:\n\tvalue: %d\n\ttcount: %d\n", dat.value, dat.count);
                         }
+
+                        size_t num_bins = cvec_len(bins);
+
+                        bool matched_to_bin = false;
+
+                        for (size_t k = 0; k < num_bins; k++) {
+                            histogram_bin * bin = &bins[k];
+                            if ((delta > (bin->value - hist_range)) && (delta < (bin->value + hist_range))) {
+                                bin->value = (bin->value * 3 + delta) / 4;
+                                bin->count++;
+                                
+                                matched_to_bin = true;
+                                break;
+                            }
+                        }
+
+                        if (!matched_to_bin) {
+                            histogram_bin dat;
+                            dat.value = delta;
+                            dat.count = 1;
+                            cvec_append(bins, dat);
+                        }
+
+                        last_time = time;                          // set last value
                     }
 
-                    if (!matched_to_bin) {
-                        histogram_bin dat;
-                        dat.value = delta;
-                        dat.count = 1;
-                        cvec_append(bins, dat);
-                    }
-
-                    last_time = time;                          // set last value
+                    last_value = val;   // set last value
                 }
-
-                last_value = val;   // set last value
-            }
 
             }
             chunk_min = UINT16_MAX; // reset chunk minima and maxima
@@ -283,7 +284,7 @@ char * derive_light_data(size_t timeout) {
     for (size_t i = 0; i < cvec_len(bins); i++) {
         histogram_bin * bin = &bins[i];
 
-        //printf("bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        //ESP_LOGI(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
 
         for (size_t j = 0; j < 3; j++) {
             histogram_bin * cmp_bin = &bins[top_bins[j]];
@@ -303,7 +304,7 @@ char * derive_light_data(size_t timeout) {
 
     for (size_t i = 0; i < 3; i++) {
         histogram_bin * bin = &bins[top_bins[i]];
-        ESP_LOGD(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
+        //ESP_LOGI(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bin->value, bin->count);
         for (size_t j = 0; j < 3; j++) {
             if (bin->value <= bit_times[j]) {
                 memmove(&bit_times[j+1], &bit_times[j], sizeof(bit_times) - sizeof(size_t) * j);
@@ -315,6 +316,7 @@ char * derive_light_data(size_t timeout) {
 
     /*printf("bin values...\n");*/
     for (size_t i = 0; i < 3; i++) {
+        ESP_LOGI(TAG, "bin %d:\n\tvalue: %d\n\tcount: %d\n", i, bins[bit_times[i]].value, bins[bit_times[i]].count);
         if (bins[bit_times[i]].count < min_count) {
             ESP_LOGW(TAG, "no valid data found!");
             goto ret_packet;
@@ -345,7 +347,10 @@ char * derive_light_data(size_t timeout) {
         ESP_LOGI(TAG, "\tbit %d", bit);
         
         if (bit == 2) {
-            if (cvec_len(packet_data) > 1) break;       // if a 2-bit is encountered when the data buffer is written to, assume that the transmission has ended.
+            if (cvec_len(packet_data) > 1) {
+                ESP_LOGI(TAG, "transmission complete!");
+                break;       // if a 2-bit is encountered when the data buffer is written to, assume that the transmission has ended.
+            }
             header_counter++;
         } else { 
             // on packet,
@@ -355,9 +360,9 @@ char * derive_light_data(size_t timeout) {
                     cvec_append(packet_data, 0);
                     bit_head = 0;
                 }
+            } else {
+                header_counter = 0;
             }
- 
-            header_counter = 0;
         }
     }
 
@@ -375,6 +380,40 @@ char * derive_light_data(size_t timeout) {
     ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));   // re-enable watchdog
 
     return out;
+}
+
+void test_light_comms(int64_t time) {
+    
+    int64_t timeout = get_micros() + time * 1000L;
+
+    adc_power_on();
+    TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
+    ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
+
+    int64_t last_time = get_micros();
+    bool last_value = false;
+
+    while (get_micros() < timeout) {
+        bool current_value = flasher_feed(adc1_get_raw(ADC1_CHANNEL_6));
+        int64_t current_time = get_micros(), delta_time = 0;
+
+        gpio_set_level(LED_PIN, !current_value);
+
+        if (last_value != current_value) {
+            delta_time = current_time - last_time;
+            if (delta_time > 10000L) last_time = current_time;
+            else delta_time = 0;
+        }
+
+        if (delta_time) ESP_LOGI(TAG, "bit flip: %lld frame", (delta_time + 8333L)/16667L);
+
+        last_value = current_value;
+        
+        ets_delay_us(500);
+    }
+
+    adc_power_off();
+    ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));              // enable watchdog
 }
 
 static void touch_isr(void * arg) {
@@ -456,7 +495,7 @@ void app_main(void)
 
     // initialize wifi
 
-    wifi_adapter_init();
+    /*wifi_adapter_init();
 
     wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
 
@@ -475,7 +514,7 @@ void app_main(void)
     http_get("example.com", "80", "/", http_get_cb);
     
     wifi_adapter_disconnect();
-    wifi_adapter_stop();
+    wifi_adapter_stop();*/
 
     // initialize ble adapter
 
@@ -511,15 +550,18 @@ void app_main(void)
     // advertising loop
     while (true) {
         if (touch_wake) {
-            touch_wake = false;
 
             ESP_LOGI(TAG, "scanning for light data.");
 
-            char * data = derive_light_data(10000); // scan for light data for 10 seconds
+            test_light_comms(10*1000);
 
-            ESP_LOGI(TAG, "recieved light data %s.", data);
+            //char * data = derive_light_data(10000); // scan for light data for 10 seconds
 
-            free(data);
+            //ESP_LOGI(TAG, "recieved light data %s.", data);
+
+            //free(data);
+
+            touch_wake = false;
         }
 
         gpio_set_level(LED_PIN, 1);                                 // turn builtin led on

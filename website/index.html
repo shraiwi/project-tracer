@@ -14,19 +14,19 @@
                 display: table-cell;
                 vertical-align: middle;
                 /*background-color: black;*/
-                border: 5px dashed black;
+                border: 5px solid red;
             }
         </style>
     </head>
     <body>
         <div id="card"></div>
-        <h1 id="transferProgress"></h1>
+        <h1 id="transferProgress">Transfer stopped!</h1>
         <h1>
             <ol>
-                <li>click on the card to enable data transfer</li>
-                <li>place your tracer card on top of flashing box</li>
-                <li>wait for the tracer card to stop blinking</li>
-                <li>click on the card again to stop data transfer</li>
+                <li>Click on the card to enable data transfer</li>
+                <li>Place your tracer card on top of flashing box</li>
+                <li>Wait for the tracer card to stop blinking</li>
+                <li>Click on the card again to stop data transfer</li>
             </ol>
         </h1>
         <script>
@@ -39,6 +39,8 @@
                 lo_time: 1,
                 head_len: 8,
                 tx_data: "hello world!",
+                card_div: document.getElementById("card"),
+                progess_text: document.getElementById("transferProgress"),
             };
 
             function toBitArray(number, numBits) {
@@ -59,11 +61,13 @@
 
             // transmits an array of data bits
             function tx(dataString, progressCallback) {
-                const [lo, hi, head] = [settings.lo_time, settings.lo_time * 2, settings.lo_time * 3];
+                const [lo, hi, head] = [settings.lo_time, settings.lo_time * 2, settings.lo_time *3];
 
                 // format is head => data => head
 
                 let frameSchedule = Array(settings.head_len).fill(head).concat(dataString.map(a => [1, 2][+a])).concat(Array(settings.head_len).fill(head));
+                let averageTime = 0;
+                let lastFrame = performance.now();
 
                 txTime = frameSchedule.reduce((a, b) => a + b) * (1/60);
                 console.log(`data transfer will take around ${txTime.toPrecision(2)}s.`)
@@ -72,16 +76,19 @@
 
                 return new Promise(resolve => {
                     function onFrame(time) {
-                        if (frameSchedule[index]-- === 0) index++;
-                        card.style.backgroundColor = ["black", "white"][index % 2];
+                        if (--frameSchedule[index] === 0) index++;
+                        settings.card_div.style.backgroundColor = ["black", "white"][index % 2];
 
-                        if (progressCallback) progressCallback(index / frameSchedule.length);
+                        let dt = time - lastFrame;
+                        lastFrame = time;
+
+                        averageTime = (averageTime * 0.6 + dt * 0.4) | 0;
+                        console.log(`average ${averageTime}ms per frame`);
+
+                        if (progressCallback) progressCallback(index / frameSchedule.length, dt);
 
                         if (index < frameSchedule.length) window.requestAnimationFrame(onFrame);
-                        else {
-                            card.style.borderColor = "black";
-                            resolve()
-                        }
+                        else resolve(false)
                     }
 
                     window.requestAnimationFrame(onFrame);
@@ -91,11 +98,24 @@
             
             async function transmit() {
                 let bitArray = str2BitArray(settings.tx_data);
-                let parentThis = this
-                if (parentThis.txdone || !("txdone" in parentThis)) {
-                    parentThis.txdone = false;
-                    tx(bitArray, v => document.getElementById("transferProgress").innerText = `${(v*100).toPrecision(3)}% done! (estimated transfer is ${txTime.toPrecision(2)}s)`).then(() => parentThis.txdone = true);
-                }                    
+                let parentThis = this;
+                parentThis.dotx = !(parentThis.dotx || false);
+
+                if (!parentThis.dotx) parentThis.style.borderColor = "yellow";
+
+                parentThis.txfn = parentThis.txfn || function (first) {
+                    if (parentThis.dotx) {
+                        settings.card_div.style.borderColor = "lightgreen";
+                        function updateTime(percent, dt) {
+                            settings.progess_text.innerText = parentThis.dotx ? `Transferring data... ${dt < 18 ? "" : "Bad frame!"}` : `Stopping, ${(percent*100).toPrecision(3)}% done!`;
+                        }
+                        tx(bitArray, updateTime).then(parentThis.txfn);
+                    } else if (!first) {
+                        settings.card_div.style.borderColor = "red";
+                        settings.progess_text.innerText = "Transfer stopped!";
+                    }
+                }
+                parentThis.txfn(true);
                 
             }
 
