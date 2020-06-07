@@ -25,6 +25,7 @@
 #include "storage.h"
 #include "timesync.h"
 #include "flasher.h"
+#include "http_server.h"
 #include "http.h"
 #include "tracer.h"
 #include "cvec.h"
@@ -150,26 +151,31 @@ void test_light_comms(int64_t time) {
     TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
     ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
 
-    flasher_config(300, 5000L, 33333L, 500, get_micros());
+    flasher_config(100, 5000L, 33333L, 500, get_micros());
 
     char c = 0;
     uint8_t c_head = 0;
 
     uint8_t header_counter = 0;
 
-    while (get_micros() < timeout) {
+    bool receiving = false;
+
+    while (get_micros() < timeout || receiving) {
         int8_t bit = flasher_feed(adc1_get_raw(ADC1_CHANNEL_6), get_micros());
+        receiving = header_counter >= 3;
         if (bit == 2) {
             header_counter++;
-        } else if (bit > -1 && bit < 2) {
-            if (header_counter >= 3) {
+        } else if (bit > -1 && bit < 2 && receiving) {
+            if (receiving) {
                 c |= bit << c_head++;
                 if (c_head == 8) {
                     ESP_LOGI(TAG, "%c", c);
                     c = 0;
                     c_head = 0;
                 }
-            } else header_counter = 0;
+            } else {
+                header_counter = 0;
+            }
         }
     }
 
@@ -241,8 +247,12 @@ void randomize_mac() {
     free(random_mac);
 }
 
-void app_main(void)
-{
+esp_err_t http_server_get_handler(httpd_req_t * req) {
+    httpd_resp_send(req, "hello world!", sizeof("hello world!"));
+    return ESP_OK;
+}
+
+void app_main(void) {
     ESP_LOGI(TAG, "esp booted!");
 
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -256,14 +266,24 @@ void app_main(void)
 
     // initialize wifi
 
-    wifi_adapter_init();
+    wifi_adapter_init(WIFI_ADAPTER_AP);
+    wifi_adapter_set_server_src(WIFI_ADAPTER_AP);
 
-    wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
+    //wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
+    wifi_adapter_begin_softap("my test wifi net", NULL);
 
-    while (!wifi_adapter_get_flag(WIFI_ADAPTER_CONNECTED_FLAG)) {
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        ESP_LOGD(TAG, "waiting for wifi connect...");
+    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+        ESP_LOGD(TAG, "waiting for ip assignment...");
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
+
+    http_server_begin();
+
+    http_server_onrequest(HTTP_GET, "/", http_server_get_handler);
+
+    vTaskDelay(60L*1000L / portTICK_PERIOD_MS);
+
+    http_server_stop();
 
     //timesync_sync();
 
