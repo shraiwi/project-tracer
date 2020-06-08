@@ -68,7 +68,7 @@ char * http_get_header(const char * method, const char * url, const char * serve
 // performs an http request at the given server and address. assumes all body data is binary.
 int http_req(const char * method, const char * server, const char * url, char * body, size_t body_len, void (*callback)(char * data, size_t head)) {
 
-    if (!wifi_adapter_get_flag(WIFI_ADAPTER_CONNECTED_FLAG) || !callback) return;
+    if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) || !callback) return;
 
     const struct addrinfo hints = {
         .ai_family = AF_INET,

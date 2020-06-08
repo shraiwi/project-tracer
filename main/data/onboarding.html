@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+
+<html>
+    <head></head>
+    <body>
+        <table id="wifi"></table>
+        <button id="scanButton">Scan for WiFi networks</button>
+        <button id="connectAbs" onclick="cantConnectButton()">Don't see yours?</button>
+        <script>
+            const settings = {
+                table: document.getElementById("wifi"),
+                scanButton: document.getElementById("scanButton"),
+                scanURL: "/scandata",
+            };
+
+            function csv2array(csv) {
+                return csv.split("\n").map(function (row) {
+                    return row.split(",").map(function (cell) {
+                        return cell.trim()
+                    });
+                });
+            }
+
+            function csv2table(array, table, titleRow = -1, clearTable = false) {
+                if (clearTable) {
+                    while (table.hasChildNodes()) {
+                        table.removeChild(table.firstChild);
+                    }
+                }
+                for (rowIdx in array) {
+                    let row = array[rowIdx];
+                    let tableRow = table.insertRow();
+                    for (value of row) {
+                        let cell = tableRow.insertCell();
+                        let cellData = rowIdx == titleRow ? cell.appendChild(document.createElement("b")) : cell;
+                        cellData.innerHTML = value;
+                    }
+                }
+            }
+
+            async function connectTo(ssid, password) {
+                let reponse = await(await fetch("/postwifi", {
+                    method: "POST",
+                    body: `ssid[${ssid}]pwd[${password}]`,
+                })).text();
+                console.log(response);
+            }
+
+            async function connectButtonClick(ssid, security) {
+                let pwd = "";
+                if (security) pwd = prompt("Please enter the password to the network.");
+                console.log(ssid);
+                connectTo(ssid, pwd);
+            }
+
+            async function cantConnectButton() {
+                let ssid = prompt("Please enter the name (SSID) of the network.");
+                let pwd = prompt("Please enter the password to the network, if there is one.");
+                console.log(ssid);
+                connectTo(ssid, pwd);
+            }
+
+            async function onScanButton() {
+                this.disabled = true;
+                let priorText = this.innerText;
+                this.innerText = "Scanning...";
+
+                let response = await (await fetch(settings.scanURL)).text();
+
+                console.log(response);
+
+                let dataArray = csv2array(response);
+
+                let rowKeys = Object.keys(dataArray).slice(1);
+
+                for (rowIdx of rowKeys) {
+                    let row = dataArray[rowIdx];
+                    if (row.length === 1) {
+                        dataArray.pop();
+                        continue;
+                    }
+                    row.push(`<button onclick="connectButtonClick('${row[0]}', ${row[2]});">Connect</button>`);
+                    row[2] = ["None", "WEP", "WPA PSK", "WPA-2 PSK", "WPA/WAP-2 PSK", "WPA-2 Enterprise"][row[2]];
+                    row[2] = `<p style="margin:0;padding:0;color:${row[2] === "None" ? "red" : "green"};">${row[2]}</p>`;
+                }
+
+                csv2table(dataArray, settings.table, 0, true);
+
+                this.disabled = false;
+                this.innerText = priorText;
+            }
+
+            settings.scanButton.addEventListener("click", onScanButton);
+            settings.scanButton.click();
+        </script>
+    </body>
+</html>

@@ -26,6 +26,7 @@
 #include "timesync.h"
 #include "flasher.h"
 #include "http_server.h"
+#include "streamop.h"
 #include "http.h"
 #include "tracer.h"
 #include "cvec.h"
@@ -35,6 +36,10 @@
 #define PHOTOCELL_PIN       34
 #define TOUCH_PIN           33
 #define SPIFFS_ROOT         "/spiffs"
+
+#define POST_SSID_KEY_BEGIN "ssid["
+#define POST_PWD_KEY_BEGIN  "pwd["
+#define POST_KEY_END        ']'
 
 static const char * TAG = "app_main";
 
@@ -247,15 +252,132 @@ void randomize_mac() {
     free(random_mac);
 }
 
-esp_err_t http_server_get_handler(httpd_req_t * req) {
-    httpd_resp_send(req, "hello world!", sizeof("hello world!"));
+esp_err_t config_get_handler(httpd_req_t * req) {
+
+    extern const char onboard[] asm("_binary_onboarding_html_start");
+
+    httpd_resp_sendstr(req, onboard);
     return ESP_OK;
+}
+
+esp_err_t config_get_scanned_wifi_handler(httpd_req_t * req) {
+
+    if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING)) {
+        wifi_adapter_begin_scan();
+    }
+
+    while (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING)) {
+        vTaskDelay(100L / portTICK_PERIOD_MS);
+    }
+
+    uint16_t scan_data_len = 20;
+    wifi_ap_record_t * scan_data = wifi_adapter_get_scan(&scan_data_len);
+
+    //wifi_ap_record_t * scan_data = (wifi_ap_record_t *)req->user_ctx;
+
+    httpd_resp_set_hdr(req, "Content-Type", "text/csv");
+
+    httpd_resp_sendstr_chunk(req, "SSID,RSSI,Security\n");
+
+    uint16_t i = 0;
+
+    while (scan_data[i++].ssid[0]) {
+        httpd_resp_sendstr_chunk(req, (const char *)scan_data[i].ssid);
+        char num[32] = "";
+        sprintf(num, ",%d,%d\n", scan_data[i].rssi, scan_data[i].authmode);
+        httpd_resp_sendstr_chunk(req, num);
+    }
+
+    httpd_resp_sendstr_chunk(req, NULL);
+
+    free(scan_data);
+
+    return ESP_OK;
+}
+
+esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
+    char recv_buf[64];
+    int ret, remaining = req->content_len;
+
+    streamop_match_token match_ssid_begin = streamop_token_from_str(POST_SSID_KEY_BEGIN);
+    streamop_match_token match_pwd_begin = streamop_token_from_str(POST_PWD_KEY_BEGIN);
+
+    bool ssid_block = false, pwd_block = false;
+
+    char ssid[33] = { 0 }, pwd[65] = { 0 };
+    size_t ssid_head = 0, pwd_head = 0;
+
+    while (remaining > 0) {
+        ret = httpd_req_recv(req, recv_buf, MIN(sizeof(recv_buf), remaining));
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            return ESP_FAIL;
+        }
+
+        remaining -= ret;
+
+        for (int i = 0; i < ret; i++) {
+            char c = recv_buf[i];
+
+            ssid_block &= c != POST_KEY_END;
+            pwd_block &= c != POST_KEY_END;
+
+            if (ssid_block) {
+                ssid[ssid_head++] = c;
+                ssid_block = ssid_head != (sizeof(ssid) - 1);
+            }
+            if (pwd_block) {
+                pwd[pwd_head++] = c;
+                pwd_block = pwd_head != (sizeof(pwd) - 1);
+            }
+
+            ssid_block |= streamop_match_character(&match_ssid_begin, c) == STREAMOP_MATCH;
+            pwd_block |= streamop_match_character(&match_pwd_begin, c) == STREAMOP_MATCH;
+        }
+    }
+
+    ESP_LOGI(TAG, "recieved POST with ssid: %s, pwd: %s", ssid, pwd);
+
+    wifi_adapter_connect(ssid, strlen(pwd) > 8 ? pwd : NULL);
+
+    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) {
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+
+    if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+        httpd_resp_sendstr(req, "fail");
+    } else {
+        httpd_resp_sendstr(req, "ok");
+    }
+
+    return ESP_OK;
+
+}
+
+void enter_config() {
+
+    wifi_adapter_begin_softap("heeereee", NULL);
+
+    http_server_begin();
+
+    http_server_onrequest(HTTP_GET, "/", config_get_handler, NULL);
+    http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
+    http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
+
+    vTaskDelay(300L*1000L / portTICK_PERIOD_MS);
+
+    http_server_stop();
+
+    wifi_adapter_stop();
+
+    //free(scan_data);
 }
 
 void app_main(void) {
     ESP_LOGI(TAG, "esp booted!");
 
     ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(nvs_flash_erase());
 
     init_touch();           // initialize touch and activate callbacks
     init_gpio();            // initialize GPIO
@@ -264,26 +386,23 @@ void app_main(void) {
 
     init_spiffs();          // initialize spiffs
 
-    // initialize wifi
-
-    wifi_adapter_init(WIFI_ADAPTER_AP);
+    wifi_adapter_init(WIFI_ADAPTER_DUAL);
     wifi_adapter_set_server_src(WIFI_ADAPTER_AP);
 
+    // initialize wifi
+
+    //wifi_adapter_init(WIFI_ADAPTER_DUAL);
+    //wifi_adapter_set_server_src(WIFI_ADAPTER_AP);
+
     //wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
-    wifi_adapter_begin_softap("my test wifi net", NULL);
+    /*wifi_adapter_begin_softap("my test wifi net", NULL);
 
     while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
         ESP_LOGD(TAG, "waiting for ip assignment...");
         vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
+    }*/
 
-    http_server_begin();
-
-    http_server_onrequest(HTTP_GET, "/", http_server_get_handler);
-
-    vTaskDelay(60L*1000L / portTICK_PERIOD_MS);
-
-    http_server_stop();
+    enter_config();
 
     //timesync_sync();
 
@@ -293,14 +412,14 @@ void app_main(void) {
     //ESP_LOGI(TAG, "date: %s", ctime(&now));
 
     //http_get("example.com", "80", "/", http_get_cb);
-    http_req("GET", "www.example.com", "http://www.example.com/", NULL, 0, http_get_cb);
+    //http_req("GET", "www.example.com", "http://www.example.com/", NULL, 0, http_get_cb);
 
-    http_req("POST", "www.postman-echo.com", "http://postman-echo.com/post", "hello world!", sizeof("hello world!"), http_get_cb);
+    //http_req("POST", "www.postman-echo.com", "http://postman-echo.com/post", "hello world!", sizeof("hello world!"), http_get_cb);
 
-    https_req("GET", "www.howsmyssl.com", "https://www.howsmyssl.com/a/check", NULL, 0, HOWSMYSSL_PEM, http_get_cb);
+    //https_req("GET", "www.howsmyssl.com", "https://www.howsmyssl.com/a/check", NULL, 0, HOWSMYSSL_PEM, http_get_cb);
     
-    wifi_adapter_disconnect();
-    wifi_adapter_stop();
+    //wifi_adapter_disconnect();
+    //wifi_adapter_stop();
 
     // initialize ble adapter
 

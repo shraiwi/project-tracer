@@ -24,12 +24,12 @@
 httpd_handle_t http_server = NULL;
 
 // registers a handle to a request
-void http_server_onrequest(httpd_method_t method, const char * path, esp_err_t (*callback)(httpd_req_t * req)) {
+void http_server_onrequest(httpd_method_t method, const char * path, esp_err_t (*callback)(httpd_req_t * req), void * context) {
     httpd_uri_t handler;
     handler.method = method;
     handler.uri = path;
     handler.handler = callback;
-    handler.user_ctx = NULL;
+    handler.user_ctx = context;
 
     ESP_ERROR_CHECK(httpd_register_uri_handler(http_server, &handler));
 }
@@ -40,7 +40,6 @@ void http_server_delete_request(const char * path) {
 }
 
 void http_server_begin() {
-
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
 
     ESP_LOGI(TAG, "starting server...");

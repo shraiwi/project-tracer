@@ -6,11 +6,14 @@
 #ifndef _UTILS_H_
 #define _UTILS_H_
 
-#define GET_BIT(n) (1<<n)
+#define GET_BIT(n) (1 << n)
 
 #define SET_FLAG(var, flag)     var |= flag
 #define CLEAR_FLAG(var, flag)   var &= ~flag
-#define GET_FLAG(var, flag)     var & flag
+#define GET_FLAG(var, flag)     (var & flag)
+
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 // prints a hex buffer to stdout.
 void print_hex_buffer(void * data, size_t data_len) {
@@ -18,7 +21,6 @@ void print_hex_buffer(void * data, size_t data_len) {
         printf("%02x", ((uint8_t*)data)[i]);
     }
 }
-
 
 // concatenates 2 strings
 char * string_concat(char * a, char * b) {

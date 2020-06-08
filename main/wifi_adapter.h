@@ -18,6 +18,7 @@
 #define WIFI_ADAPTER_CONNECT_FAIL_FLAG  GET_BIT(2)
 #define WIFI_ADAPTER_SOFTAP_FLAG        GET_BIT(3)
 #define WIFI_ADAPTER_HAS_IP             GET_BIT(4)
+#define WIFI_ADAPTER_SCANNING           GET_BIT(5)
 
 #define TAG "wifi_adapter"
 
@@ -28,10 +29,6 @@ typedef enum {
 } wifi_adapter_mode;
 
 static uint8_t wifi_adapter_flags = 0;
-
-void wifi_adapter_set_flag(uint8_t flag) { wifi_adapter_flags |= flag; }
-void wifi_adapter_clear_flag(uint8_t flag) { wifi_adapter_flags &= ~flag; }
-bool wifi_adapter_get_flag(uint8_t flag) { return wifi_adapter_flags & flag; }
 
 static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, int32_t event_id, void * event_data) {
     if (event_base == WIFI_EVENT) {
@@ -49,12 +46,19 @@ static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, 
             
             case WIFI_EVENT_STA_START:
                 ESP_LOGI(TAG, "wifi station started, connecting to ap.");
-                esp_wifi_connect();
+                SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_READY_FLAG);
+                //esp_wifi_connect();
                 break;
             case WIFI_EVENT_AP_START:
                 ESP_LOGI(TAG, "softap initialized!");
-                wifi_adapter_set_flag(WIFI_ADAPTER_SOFTAP_FLAG);
+                SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SOFTAP_FLAG);
                 break;
+
+            case WIFI_EVENT_SCAN_DONE:
+                ESP_LOGI(TAG, "wifi scan complete!");
+                CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING);
+                break;
+                
         }
     } else if (event_base == IP_EVENT) {
         switch (event_id) {
@@ -80,6 +84,8 @@ void wifi_adapter_init(wifi_adapter_mode mode) {
 
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_adapter_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_adapter_event_handler, NULL));
+
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode((wifi_mode_t)mode));
 
@@ -118,18 +124,22 @@ void wifi_adapter_stop() {
 }
 
 // tries to connect to an ap given an ssid and password. use a NULL password if the network is open.
-void wifi_adapter_try_connect(const char * ssid, const char * pwd) {
+void wifi_adapter_connect(const char * ssid, const char * pwd) {
     ESP_LOGI(TAG, "attempting to connect to %s.", ssid);
 
     wifi_config_t wifi_config = { 0 };
     strncpy((char *)wifi_config.sta.ssid, ssid, 32);
     if (pwd) strncpy((char *)wifi_config.sta.password, pwd, 64);
+
+    CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
+
+    wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
 
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MAX_MODEM));
+    //while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) { vTaskDelay(50 / portTICK_PERIOD_MS); }
 }
 
 // tries to create an ap given an ssid and password. use a NULL password if the network should be open.
@@ -152,8 +162,45 @@ void wifi_adapter_begin_softap(const char * ssid, const char * pwd) {
 
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+}
 
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MAX_MODEM));
+// starts a wifi scan.
+void wifi_adapter_begin_scan() {
+    ESP_LOGI(TAG, "starting scan...");
+
+    wifi_config_t wifi_cfg = { 0 };
+
+    wifi_cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_cfg));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    wifi_scan_config_t scan_cfg = { 0 };
+
+    scan_cfg.scan_time.active.max = 500;
+
+    ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_cfg, false));
+    SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING);
+}
+
+// stops a wifi scan.
+void wifi_adapter_stop_scan() {
+    ESP_LOGI(TAG, "stopping scan...");
+    ESP_ERROR_CHECK(esp_wifi_scan_stop());
+    CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING);
+}
+
+// gets a pointer to an array of scan data, given a pointer to a value indicating how many aps to allocate for. the pointer will be set to the number of APs returned.
+wifi_ap_record_t * wifi_adapter_get_scan(uint16_t * len) {
+    ESP_LOGI(TAG, "getting scan data...");
+
+    //ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(len));
+
+    wifi_ap_record_t * out = calloc((*len + 1) * sizeof(wifi_ap_record_t), 1);
+
+    ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(len, out));
+
+    return out;
 }
 
 void wifi_adapter_disconnect() {
