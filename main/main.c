@@ -365,6 +365,46 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
 
 }
 
+void config_submit_keys(char * data, size_t len, void * user_dat) {
+
+    uint8_t * flags = (uint8_t *)user_dat;
+
+    if (strncmp(data, "ok", sizeof("ok")-1) == 0) SET_FLAG(*flags, BIT(0));
+
+    SET_FLAG(*flags, BIT(1));
+
+    return;
+}
+
+esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
+
+    if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) {
+        httpd_resp_sendstr(req, "fail");
+        return ESP_FAIL;
+    }
+
+    char recv_buf[64];
+    int ret, remaining = req->content_len;
+
+    while (remaining > 0) {
+        ret = httpd_req_recv(req, recv_buf, MIN(sizeof(recv_buf), remaining));
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            return ESP_FAIL;
+        }
+
+        remaining -= ret;        
+    }
+
+    uint8_t submit_flags = 0;
+
+    http_req_ip("POST", "10.0.0.173", "10.0.0.173/", (char*)tracer_tek_array, sizeof(tracer_tek_array), config_submit_keys, &submit_flags);
+
+    httpd_resp_sendstr(req, GET_FLAG(submit_flags, BIT(0)) ? "ok" : "fail");
+
+    return ESP_OK;
+}
+
 void enter_config() {
 
     wifi_adapter_begin_softap("heeereee", NULL);
@@ -374,6 +414,7 @@ void enter_config() {
     http_server_onrequest(HTTP_GET, "/", config_get_handler, NULL);
     http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
     http_server_onrequest(HTTP_GET, "/getwifistatus", config_get_wifi_status_handler, NULL);
+    http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, NULL);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
     vTaskDelay(300L*1000L / portTICK_PERIOD_MS);

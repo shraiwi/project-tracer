@@ -66,13 +66,13 @@ char * http_get_header(const char * method, const char * url, const char * serve
 }
 
 // performs an http request at the given server and address. assumes all body data is binary.
-int http_req(const char * method, const char * server, const char * url, char * body, size_t body_len, void (*callback)(char * data, size_t head)) {
+int http_req(const char * method, const char * server, const char * url, char * body, size_t body_len, void (*callback)(char * data, size_t head, void * user_data), void * user_data) {
 
     if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) || !callback) return;
 
     const struct addrinfo hints = {
         .ai_family = AF_INET,
-        .ai_socktype = 1,
+        .ai_socktype = SOCK_STREAM,
     };
 
     struct addrinfo *res;
@@ -154,7 +154,93 @@ int http_req(const char * method, const char * server, const char * url, char * 
     do {
         memset(recv_block, 0, DATA_BLOCK_SIZE);
         bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE-1);
-        callback(recv_block, head);
+        callback(recv_block, head, user_data);
+        head += bytes_read;
+    } while (bytes_read > 0);
+
+    ESP_LOGD(TAG, "http GET request complete.");
+    close(http_socket);
+    return 0;
+}
+
+// performs an http request given an ip
+int http_req_ip(const char * method, const char * server, const char * url, char * body, size_t body_len, void (*callback)(char * data, size_t head, void * user_data), void * user_data) {
+
+    if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) || !callback) return;
+
+    struct sockaddr_in addr = {0};
+    int http_socket, bytes_read;
+    char recv_block[DATA_BLOCK_SIZE];
+
+    addr.sin_len = sizeof(addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80);
+    addr.sin_addr.s_addr = inet_addr(server);
+
+    ESP_LOGD(TAG, "allocating socket");
+    http_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (http_socket < 0) {
+        ESP_LOGE(TAG, "failed to allocate socket");
+        return -1;
+    }
+
+    ESP_LOGD(TAG, "attempting socket connect");
+    if (connect(http_socket, (struct sockaddr*)&addr, sizeof(addr))) {
+        ESP_LOGE(TAG, "socket connect failed with code %d", errno);
+        close(http_socket);
+        return -1;
+    }
+
+    ESP_LOGI(TAG, "connected, sending data...");
+
+    ESP_LOGD(TAG, "getting request string");
+    char * header_str = http_gen_header(method, url);
+    http_add_header(&header_str, "Host", server);
+    http_add_header(&header_str, "User-Agent", "");
+
+    if (body_len && body) {
+        char strbuf[16];
+        sprintf(strbuf, "%u", body_len);
+        http_add_header(&header_str, "Content-Length", strbuf);
+        http_add_header(&header_str, "Content-Type", "application/octet-stream");
+    }
+
+    http_terminate_header(&header_str);
+
+    if (write(http_socket, header_str, strlen(header_str)) < 0) {
+        ESP_LOGE(TAG, "failed to send headers");
+        close(http_socket);
+        free(header_str);
+        return -1;
+    }
+
+    free(header_str);
+    
+    if (body && body_len) {
+        if (write(http_socket, body, body_len) < 0) {
+            ESP_LOGE(TAG, "failed to send body.");
+            close(http_socket);
+            return -1;
+        }
+    }
+
+    struct timeval recv_timeout;
+    recv_timeout.tv_sec = 5;
+    recv_timeout.tv_usec = 0;
+
+    ESP_LOGD(TAG, "setting timeout");
+    if (setsockopt(http_socket, SOL_SOCKET, SO_RCVTIMEO, &recv_timeout, sizeof(recv_timeout)) < 0) {
+        ESP_LOGE(TAG, "failed to set timeout");
+        close(http_socket);
+        return -1;
+    }
+
+    ESP_LOGD(TAG, "reading from socket");
+    size_t head = 0;
+    do {
+        memset(recv_block, 0, DATA_BLOCK_SIZE);
+        bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE-1);
+        callback(recv_block, head, user_data);
         head += bytes_read;
     } while (bytes_read > 0);
 
@@ -164,7 +250,7 @@ int http_req(const char * method, const char * server, const char * url, char * 
 }
 
 // performs an https transaction at the given server
-int https_req(const char * method, const char * server, const char * url, char * body, size_t body_len, void * pem_cert, void (*callback)(char data[DATA_BLOCK_SIZE], size_t length)) {
+int https_req(const char * method, const char * server, const char * url, char * body, size_t body_len, void * pem_cert, void (*callback)(char data[DATA_BLOCK_SIZE], size_t length, void * user_data), void * user_data) {
     char recv_buf[DATA_BLOCK_SIZE];
     int ret, len;
 
@@ -248,7 +334,7 @@ int https_req(const char * method, const char * server, const char * url, char *
 
         len = ret;
         
-        callback(recv_buf, len);
+        callback(recv_buf, len, user_data);
     } while (true);
 
 

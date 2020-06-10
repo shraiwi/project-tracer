@@ -135,7 +135,7 @@
             <input id="positive-diagnosis" type="checkbox">
             <label for="positive-diagnosis">Positive Diagnosis</label>
             <div>
-                <button id="postDiagnosis">Submit Positive Diagnosis</button>
+                <button id="postDiagnosis" onclick="request(settings.submitURL, 'POST')">Submit Positive Diagnosis</button>
             </div>
         </div>
         <script>
@@ -146,8 +146,13 @@
                 wifiStatus: document.getElementById("wifiStatus"),
                 scanURL: "/scandata",
                 postURL: "/postwifi",
+                submitURL: "/submitkeys",
                 wifiStatURL: "/getwifistatus",
             };
+
+            async function request(url, method = "GET") {
+                console.log(await(await fetch(url, {"method": method})).text());
+            }
 
             function setSectionVisibility(sectionName, open) {
                 document.getElementById(sectionName).checked = open;
