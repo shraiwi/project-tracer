@@ -34,12 +34,13 @@ static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, 
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
             case WIFI_EVENT_STA_CONNECTED:
-                ESP_LOGV(TAG, "wifi connected!");
-                SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
+                ESP_LOGI(TAG, "wifi connected!");
                 CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG);
+                SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:
-                ESP_LOGV(TAG, "wifi disconnected!");
+                ESP_LOGI(TAG, "wifi disconnected!");
+                SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG);
                 CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
                 CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP);
                 break;
@@ -125,6 +126,7 @@ void wifi_adapter_stop() {
 
 // tries to connect to an ap given an ssid and password. use a NULL password if the network is open.
 void wifi_adapter_connect(const char * ssid, const char * pwd) {
+
     ESP_LOGI(TAG, "attempting to connect to %s.", ssid);
 
     wifi_config_t wifi_config = { 0 };
@@ -132,6 +134,7 @@ void wifi_adapter_connect(const char * ssid, const char * pwd) {
     if (pwd) strncpy((char *)wifi_config.sta.password, pwd, 64);
 
     CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
+    CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG);
 
     wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     

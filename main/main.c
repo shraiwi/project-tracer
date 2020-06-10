@@ -295,6 +295,15 @@ esp_err_t config_get_scanned_wifi_handler(httpd_req_t * req) {
     return ESP_OK;
 }
 
+esp_err_t config_get_wifi_status_handler(httpd_req_t * req) {
+
+    if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) httpd_resp_sendstr(req, "ok");
+    else if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) httpd_resp_sendstr(req, "fail");
+    else httpd_resp_sendstr(req, "disconnected");
+
+    return ESP_OK;
+}
+
 esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
     char recv_buf[64];
     int ret, remaining = req->content_len;
@@ -336,18 +345,20 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
         }
     }
 
-    ESP_LOGI(TAG, "recieved POST with ssid: %s, pwd: %s", ssid, pwd);
+    ESP_LOGI(TAG, "recieved POST with ssid: %s, pwd: %d chars", ssid, strlen(pwd));
 
     wifi_adapter_connect(ssid, strlen(pwd) > 8 ? pwd : NULL);
 
-    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) {
+    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 
     if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
         httpd_resp_sendstr(req, "fail");
+        ESP_LOGI(TAG, "wifi failed!");
     } else {
         httpd_resp_sendstr(req, "ok");
+        ESP_LOGI(TAG, "wifi connected!");
     }
 
     return ESP_OK;
@@ -362,6 +373,7 @@ void enter_config() {
 
     http_server_onrequest(HTTP_GET, "/", config_get_handler, NULL);
     http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
+    http_server_onrequest(HTTP_GET, "/getwifistatus", config_get_wifi_status_handler, NULL);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
     vTaskDelay(300L*1000L / portTICK_PERIOD_MS);

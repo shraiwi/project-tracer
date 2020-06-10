@@ -1,17 +1,179 @@
 <!DOCTYPE html>
 
 <html>
-    <head></head>
+    <head>
+        <style>
+            *, *::before, *::after {
+                transition-duration: 250ms;
+                font-family: sans-serif;
+            }
+
+            body {
+                margin: auto;
+                width: max(500px, 50vw);
+            }
+
+            table { 
+                border-collapse: collapse;
+                width: 100%;
+                margin-bottom: 10px;
+            }
+            tr { border: none; }
+            td {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+
+            .collapsible {
+                margin: 10px;
+                padding: 10px;
+                border-radius: 10px;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            }
+            .collapsible>label {
+                cursor: pointer;
+                font-weight: bolder;
+                display: block;
+                -moz-user-select: none;
+                -webkit-user-select: none;
+                -ms-user-select: none;
+                user-select: none;
+            }
+
+            .collapsible>input {
+                position: absolute;
+                width: 0;
+                height: 0;
+                margin: 0;
+            }
+            .collapsible>input ~ div {
+                overflow-y: hidden;
+                padding: 0;
+                opacity: 0;
+                margin-top: 0;
+                margin-left: 0;
+                height: 0;
+            }
+            .collapsible>input:checked ~ div { 
+                margin-top: 5px;
+                margin-left: 20px;
+                opacity: 1;
+                height: var(--max-height);
+            }
+
+            .collapsible>label::before {
+                margin-right: 5px;
+                content: "\25B8";
+                display: inline-block;
+            }
+            .collapsible>input:checked ~ label::before { content: "\25BE"; }
+
+            p.wifi-unknown::after {
+                font-weight: bolder;
+                content: "Unknown";
+                color: orange;
+            }
+            p.wifi-ok::after {
+                font-weight: bolder;
+                content: "Connected";
+                color: green;
+            }
+            p.wifi-fail::after {
+                font-weight: bolder;
+                content: "Connection Failed";
+                color: red;
+            }
+            p.wifi-disconnected::after {
+                font-weight: bolder;
+                content: "Disconnected";
+                color: red;
+            }
+
+            div.centercard {
+                position: fixed;
+                background-color: white;
+                padding: 10px;
+                left: 50%;
+                transform: translateX(-50%) translateY(-100%);
+                opacity: 0;
+                border-radius: 10px;
+                border-top-left-radius: 0;
+                border-top-right-radius: 0;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+                top: 0;
+            }
+
+            div.centercard.active {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0%);
+            }
+        </style>
+    </head>
     <body>
-        <table id="wifi"></table>
-        <button id="scanButton">Scan for WiFi networks</button>
-        <button id="connectAbs" onclick="cantConnectButton()">Don't see yours?</button>
+        <h1>Tracer Configuration Menu</h1>
+        <div class="centercard">
+            <b>Loading...</b>
+        </div>
+        <div class="collapsible">
+            <input id="wifi-status" type="checkbox">
+            <label for="wifi-status">WiFi Status</label>
+            <div>
+                <p id="wifiStatus" class="wifi-unknown">WiFi Status: </p>
+                <button id="checkWifi">Get WiFi Status</button>
+            </div>
+        </div>
+        <div class="collapsible">
+            <input id="wifi-config" type="checkbox" checked>
+            <label for="wifi-config">WiFi Configuration</label>
+            <div>
+                <table id="wifi"></table>
+                <button id="scanButton">Scan for WiFi networks</button>
+                <button id="connectAbs" onclick="cantConnectButton()">Manual Connect</button>
+            </div>
+        </div>
+        <div class="collapsible">
+            <input id="positive-diagnosis" type="checkbox">
+            <label for="positive-diagnosis">Positive Diagnosis</label>
+            <div>
+                <button id="postDiagnosis">Submit Positive Diagnosis</button>
+            </div>
+        </div>
         <script>
             const settings = {
                 table: document.getElementById("wifi"),
                 scanButton: document.getElementById("scanButton"),
+                wifiCheck: document.getElementById("checkWifi"),
+                wifiStatus: document.getElementById("wifiStatus"),
                 scanURL: "/scandata",
+                postURL: "/postwifi",
+                wifiStatURL: "/getwifistatus",
             };
+
+            function setSectionVisibility(sectionName, open) {
+                document.getElementById(sectionName).checked = open;
+            }
+
+            function updateCollapsibles() {
+                for (elem of document.querySelectorAll(".collapsible>input ~ div")) {
+                    elem.style.setProperty("--max-height", elem.scrollHeight + "px");
+                }
+            }
+
+            function disableAllButtons() {
+                let buttonsArray = document.querySelectorAll("button");
+                document.getElementsByClassName("centercard")[0].classList.add("active");
+                for (button of buttonsArray) {
+                    button.disabled = true;
+                }
+            }
+
+            function enableAllButtons() {
+                let buttonsArray = document.querySelectorAll("button");
+                document.getElementsByClassName("centercard")[0].classList.remove("active");
+                for (button of buttonsArray) {
+                    button.disabled = false;
+                }
+            }
 
             function csv2array(csv) {
                 return csv.split("\n").map(function (row) {
@@ -21,7 +183,7 @@
                 });
             }
 
-            function csv2table(array, table, titleRow = -1, clearTable = false) {
+            function csv2table(array, table, titleRow = -1, clearTable = false, caption = "") {
                 if (clearTable) {
                     while (table.hasChildNodes()) {
                         table.removeChild(table.firstChild);
@@ -39,11 +201,21 @@
             }
 
             async function connectTo(ssid, password) {
-                let reponse = await(await fetch("/postwifi", {
-                    method: "POST",
-                    body: `ssid[${ssid}]pwd[${password}]`,
-                })).text();
+                disableAllButtons();
+                let response = ""
+                try {
+                    response = await (await fetch(settings.postURL, {
+                        method: "POST",
+                        body: `ssid[${ssid}]pwd[${password}]`,
+                    })).text();
+                } catch (error) {
+                    console.log(error.message);
+                }
+                enableAllButtons();
+                setSectionVisibility("wifi-status", true);
+                settings.wifiStatus.className = `wifi-${response || "unknown"}`;
                 console.log(response);
+                updateCollapsibles();
             }
 
             async function connectButtonClick(ssid, security) {
@@ -60,8 +232,16 @@
                 connectTo(ssid, pwd);
             }
 
+            async function getWifiStatus() {
+                let response = await (await fetch(settings.wifiStatURL)).text();
+                console.log(response);
+                setSectionVisibility("wifi-status", true);
+                settings.wifiStatus.className = `wifi-${response || "unknown"}`;
+                updateCollapsibles();
+            }
+
             async function onScanButton() {
-                this.disabled = true;
+                disableAllButtons();
                 let priorText = this.innerText;
                 this.innerText = "Scanning...";
 
@@ -86,12 +266,19 @@
 
                 csv2table(dataArray, settings.table, 0, true);
 
-                this.disabled = false;
+                enableAllButtons();
                 this.innerText = priorText;
+
+                updateCollapsibles();
             }
 
             settings.scanButton.addEventListener("click", onScanButton);
-            settings.scanButton.click();
+            settings.wifiCheck.addEventListener("click", getWifiStatus);
+
+            document.addEventListener("click", updateCollapsibles);
+
+            updateCollapsibles();
+            //settings.scanButton.click();
         </script>
     </body>
 </html>
