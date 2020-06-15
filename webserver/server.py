@@ -3,13 +3,22 @@
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import *
+from Crypto.Cipher import AES
+from Crypto.Util import Counter
+from enum import Enum
+import secrets
+import operator
 import urllib.parse
+import threading
 import random
 import shutil
 import base64
+import time
 import csv
 
-tek_file_path = "tekfile.csv"
+# gets the unix epoch time
+def get_epoch() -> int:
+    return int(time.time())
 
 # gets an enin given an epoch
 def derive_enin(epoch : int):
@@ -23,16 +32,57 @@ def unpack_tek(tek : bytes) -> Tuple[int, str]:
 def pack_tek(epoch : int, tek : str) -> bytes:
     return epoch.to_bytes(4, "little") + base64.b64decode(tek)
 
-# generates random bytes along with a random epoch
+# appends an iterable of teks to the tekfile.
+def commit_teks(teks : Iterable[Tuple[int, str]]):
+    global tek_file_path
+    with open(tek_file_path, "a") as tek_file:
+        tek_file.writelines(map("%d,%s\n".__mod__, teks))
+
+# generates random bytes given a random number
 def random_bytes(num : int) -> bytes:
     return bytes(random.getrandbits(8) for _ in range(num))
 
-with open("randomtek.bin", "wb+") as randtek:
-    randtek.write(random_bytes(20*14))
+class CaseIDType(Enum):
+    NOT_FOUND = 0
+    VALID = 1
+    TOO_OLD = 2
 
+# returns a set of all caseids
+def get_caseids() -> Set[Tuple[int, str]]:
+    return set(iter_caseids())
+
+# removes caseids that aren't in the active caseid array
+def commit_caseids(caseids : Set[Tuple[int, str]]):
+    global caseid_file_path
+    with open(caseid_file_path, "w") as caseid_file:
+        caseid_file.writelines(map("%d,%s\n".__mod__, caseids))
+
+# iterates over the caseid file
+def iter_caseids() -> Iterable[Tuple[int, str]]:
+    global caseid_file_path
+    caseid_file = open(caseid_file_path, "r")
+    for line in caseid_file:
+        row = line.split(",")
+        yield (int(row[0]), row[1].rstrip())
+
+# validates a caseid against a caseid array. if the caseid is valid, it will return a tuple containing the matching caseid.
+def burn_caseid(test_caseid: str, caseid_array: Set[Tuple[int, str]]) -> Tuple[CaseIDType, Tuple[int, str]]:
+    min_age = get_epoch() - 14 * 24 * 60 * 60
+    for epoch, caseid in caseid_array:
+        if caseid.casefold() == test_caseid.casefold():
+            if epoch > min_age: 
+                return CaseIDType.VALID, (epoch, caseid)
+            else: 
+                return CaseIDType.TOO_OLD, (epoch, caseid)
+    return CaseIDType.NOT_FOUND, None
+
+# randomly generates a 7-character case id and adds it to the caseid array
+def gen_caseid(epoch: int, caseid_array: Set[Tuple[int, str]]) -> str:
+    data = base64.b32encode(secrets.token_bytes(4)).decode("utf-8")[:-1]
+    caseid_array.add((epoch, data))
+    return data
 
 class TracerServerHandler(BaseHTTPRequestHandler):
-
     # sends a response code and a dictionary of headers
     def send_headers(self, code : int = 200, headers : dict = { "Content-Type" : "text/html" }) -> None:
         self.send_response(code)
@@ -43,7 +93,6 @@ class TracerServerHandler(BaseHTTPRequestHandler):
     # gets the query string as a dictionary
     def get_query(self, default : dict = {}) -> dict:
         return dict([*default.items()] + [*urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, False).items()])
-        
 
     def do_GET(self):
         self.send_headers()
@@ -64,27 +113,74 @@ class TracerServerHandler(BaseHTTPRequestHandler):
             #shutil.copyfileobj(tek_file, self.wfile)
 
     def do_POST(self):
+        global active_caseid_array, pending_teks
+
         self.send_headers()
         content_len = int(self.headers["Content-Length"])
-        if content_len % 20 == 0:
-            with open(tek_file_path, "w") as tek_file:
-                tek_writer = csv.writer(tek_file)
-                for i in range(content_len // 20):
+        if (content_len - 7) % 20 == 0:
+            caseid = self.rfile.read(7).decode("utf-8")
+            ret, match_caseid = burn_caseid(caseid, active_caseid_array)
+            if ret == CaseIDType.VALID:
+                active_caseid_array.remove(match_caseid)
+                for i in range((content_len - 7) // 20):
                     chunk = self.rfile.read(20)
                     if not chunk: break
-                    tek_pair = unpack_tek(chunk)
-                    tek_writer.writerow(tek_pair)
-            self.wfile.write(b"ok")
-        else:
-            self.wfile.write(b"fail")
+                    pending_teks.append(unpack_tek(chunk))
+                self.wfile.write(b"ok")
+                return
+            elif burn_caseid == CaseIDType.TOO_OLD:
+                self.wfile.write(b"expired")
+                return
         
+        self.wfile.write(b"invalid")
 
-            
-            
-            #try:
-            #    decoded_tek = decode_tek()
-            #tek_writer.writerows()
+    def log_message(self, format, *args):
+        return
 
+tek_file_path = "tekfile.csv"
+caseid_file_path = "caseid.csv"
+
+active_caseid_array = get_caseids()
+pending_teks = []
 
 http_server = HTTPServer(("", 80), TracerServerHandler)
-http_server.serve_forever()
+
+server_thread = threading.Thread(target=http_server.serve_forever, name="tracer webserver")
+server_thread.setDaemon(True)
+server_thread.start()
+
+def shutdown(cmd):
+    global server_thread
+    server_thread._stop()
+    raise SystemExit
+
+def reload_caseid_array() -> int:
+    global active_caseid_array
+    active_caseid_array = get_caseids()
+    return len(active_caseid_array)
+
+def commit_pending_teks(cmd):
+    global pending_teks
+    commit_teks(pending_teks)
+    out = "commited %d teks" % len(pending_teks)
+    pending_teks.clear()
+    return out
+
+command_list = {
+    "gen_caseid":           lambda cmd: "\n".join("%d: generated key %s" % (i, gen_caseid(get_epoch(), active_caseid_array)) for i in range(int(cmd[1]) if cmd[1:] else 1)),
+    "list_caseid":          lambda cmd: "\n".join(map("epoch: %d\tcaseid: %s".__mod__, active_caseid_array)),
+    "get_caseid":           lambda cmd: reload_caseid_array(),
+    "commit_caseid":        lambda cmd: commit_caseids(active_caseid_array),
+    "commit_pending_teks":  commit_pending_teks,
+    "list_pending_teks":    lambda cmd: "\n".join(map("epoch: %d\ttek: %s".__mod__, pending_teks)),
+    "help":                 lambda cmd: "available commands:\n\t"+"\n\t".join(command_list.keys()),
+    "exit":                 shutdown
+}
+
+while True:
+    userin = input("> ")
+    parsedcmd = userin.split()
+    command = parsedcmd[0] if parsedcmd else "help"
+    if command in command_list:
+        print(command_list[command](parsedcmd))
+    else: print("unknown command!")

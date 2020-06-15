@@ -29,6 +29,7 @@ typedef enum {
 } wifi_adapter_mode;
 
 static uint8_t wifi_adapter_flags = 0;
+bool wifi_adapter_eloop_created = false;
 
 static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, int32_t event_id, void * event_data) {
     if (event_base == WIFI_EVENT) {
@@ -78,13 +79,16 @@ static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, 
 void wifi_adapter_init(wifi_adapter_mode mode) {
     tcpip_adapter_init();
 
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    if (!wifi_adapter_eloop_created) ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_cfg));
 
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_adapter_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_adapter_event_handler, NULL));
+    if (!wifi_adapter_eloop_created) {
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_adapter_event_handler, NULL));
+        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_adapter_event_handler, NULL));
+        wifi_adapter_eloop_created = true;
+    }
 
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
@@ -96,25 +100,43 @@ void wifi_adapter_init(wifi_adapter_mode mode) {
     ESP_LOGI(TAG, "initialized wifi adapter.");
 }
 
-void wifi_adapter_set_server_src(wifi_adapter_mode src) {
+// disables all other netifs except for the given one.
+void _wifi_adapter_sole_netif(tcpip_adapter_if_t netif) {
+    for (int i = 0; i < TCPIP_ADAPTER_IF_MAX; i++) {
+        if (tcpip_adapter_is_netif_up(i)) ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_down(i)); // shut down all other network interfaces
+    }
+    ESP_ERROR_CHECK(tcpip_adapter_up(netif));   // boot up requested interface
+}
+
+// will attempt to safely stop the dhcps
+void _wifi_adapter_stop_dhcps() {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+}
+
+// sets the tcpip interface to a certain netif within the ESP32. this can be used to switch between certain network contexts in a dual-mode wifi configuration.
+void wifi_adapter_set_netif(wifi_adapter_mode src) {
     tcpip_adapter_ip_info_t ip_info = { 0 };
     switch (src) {
         case WIFI_MODE_AP: {
-            ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+            //ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_dhcpc_stop(TCPIP_ADAPTER_IF_STA));
             IP4_ADDR(&ip_info.ip, 10, 0, 0, 1);
             IP4_ADDR(&ip_info.gw, 10, 0, 0, 1);
             IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
             ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &ip_info));
             ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
             SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP);
+            //_wifi_adapter_sole_netif(TCPIP_ADAPTER_IF_AP);
             break;
         }
         case WIFI_MODE_STA: {
-            ESP_LOGE(TAG, "cannot set values when conencted to an ap!");
+            //ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+            //ESP_ERROR_CHECK_WITHOUT_ABORT(tcpip_adapter_dhcpc_start(TCPIP_ADAPTER_IF_STA));
+            //_wifi_adapter_sole_netif(TCPIP_ADAPTER_IF_STA);
             break;
         }
         case WIFI_MODE_APSTA: {
-            ESP_LOGE(TAG, "cannot configure two interfaces at the same time!");
+            ESP_LOGE(TAG, "cannot configure two interfaces to be active at the same time!");
             break;
         }
     }
@@ -124,21 +146,28 @@ void wifi_adapter_stop() {
     ESP_ERROR_CHECK(esp_wifi_stop());
 }
 
-// tries to connect to an ap given an ssid and password. use a NULL password if the network is open.
+void wifi_adapter_deinit() {
+    ESP_ERROR_CHECK(esp_wifi_deinit());
+    wifi_adapter_flags = 0;
+}
+
+// tries to connect to an ap given an ssid and password. use a NULL password if the network is open. use a NULL ssid if you do not want to update the target network's credentials.
 void wifi_adapter_connect(const char * ssid, const char * pwd) {
+    if (ssid) {
+        ESP_LOGI(TAG, "attempting to connect to %s.", ssid);
 
-    ESP_LOGI(TAG, "attempting to connect to %s.", ssid);
+        wifi_config_t wifi_config = { 0 };
+        strncpy((char *)wifi_config.sta.ssid, ssid, 32);
+        if (pwd) strncpy((char *)wifi_config.sta.password, pwd, 64);
 
-    wifi_config_t wifi_config = { 0 };
-    strncpy((char *)wifi_config.sta.ssid, ssid, 32);
-    if (pwd) strncpy((char *)wifi_config.sta.password, pwd, 64);
+        CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
+        CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG);
 
-    CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG);
-    CLEAR_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG);
+        wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+        
+        ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    }
 
-    wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-    
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
 

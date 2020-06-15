@@ -47,7 +47,7 @@
                 margin: 0;
             }
             .collapsible>input ~ div {
-                overflow-y: hidden;
+                overflow: hidden;
                 padding: 0;
                 opacity: 0;
                 margin-top: 0;
@@ -57,6 +57,7 @@
             .collapsible>input:checked ~ div { 
                 margin-top: 5px;
                 margin-left: 20px;
+                margin-bottom: 2px;
                 opacity: 1;
                 height: var(--max-height);
             }
@@ -111,7 +112,7 @@
     </head>
     <body>
         <h1>Tracer Configuration Menu</h1>
-        <div class="centercard">
+        <div id="infocard" class="centercard">
             <b>Loading...</b>
         </div>
         <div class="collapsible">
@@ -135,7 +136,13 @@
             <input id="positive-diagnosis" type="checkbox">
             <label for="positive-diagnosis">Positive Diagnosis</label>
             <div>
-                <button id="postDiagnosis" onclick="request(settings.submitURL, 'POST')">Submit Positive Diagnosis</button>
+                <form onsubmit="onSubmit(this, event); return false;">
+                    <label for="caseid">Case ID:</label>
+                    <input type="text" id="caseid"><br>
+                    <label for="caseserver">Server Location:</label>
+                    <input type="text" id="caseserver"><br>
+                    <input type="submit">
+                </form>
             </div>
         </div>
         <script>
@@ -149,6 +156,10 @@
                 submitURL: "/submitkeys",
                 wifiStatURL: "/getwifistatus",
             };
+
+            let state = {
+                wifi: "unknown",
+            }
 
             async function request(url, method = "GET") {
                 console.log(await(await fetch(url, {"method": method})).text());
@@ -164,9 +175,30 @@
                 }
             }
 
+            function setBusy(isBusy = true, innerText = "Please Wait...") {
+                let buttonsArray = document.querySelectorAll("button");
+                for (button of buttonsArray) {
+                    button.disabled = isBusy;
+                }
+                let centercard = document.getElementById("infocard")
+                centercard.classList[isBusy ? "add" : "remove"]("active");
+                centercard.innerHTML = innerText;
+            }
+
+            function showError(errorMessage) {
+                console.log("error!");
+                setBusy(false);
+                let centercard = document.getElementById("infocard")
+                centercard.classList.add("active");
+                centercard.innerHTML = `<b>Error!</b><br>${errorMessage}`;
+                setTimeout(function () {
+                    centercard.classList.remove("active");
+                }, 5000);
+            }
+
             function disableAllButtons() {
                 let buttonsArray = document.querySelectorAll("button");
-                document.getElementsByClassName("centercard")[0].classList.add("active");
+                document.getElementById("infocard").classList.add("active");
                 for (button of buttonsArray) {
                     button.disabled = true;
                 }
@@ -174,7 +206,7 @@
 
             function enableAllButtons() {
                 let buttonsArray = document.querySelectorAll("button");
-                document.getElementsByClassName("centercard")[0].classList.remove("active");
+                document.getElementById("infocard").classList.remove("active");
                 for (button of buttonsArray) {
                     button.disabled = false;
                 }
@@ -206,7 +238,7 @@
             }
 
             async function connectTo(ssid, password) {
-                disableAllButtons();
+                setBusy();
                 let response = ""
                 try {
                     response = await (await fetch(settings.postURL, {
@@ -216,7 +248,7 @@
                 } catch (error) {
                     console.log(error.message);
                 }
-                enableAllButtons();
+                setBusy(false);
                 setSectionVisibility("wifi-status", true);
                 settings.wifiStatus.className = `wifi-${response || "unknown"}`;
                 console.log(response);
@@ -241,16 +273,18 @@
                 let response = await (await fetch(settings.wifiStatURL)).text();
                 console.log(response);
                 setSectionVisibility("wifi-status", true);
-                settings.wifiStatus.className = `wifi-${response || "unknown"}`;
+                settings.wifiStatus.className = `wifi-${state.wifi = (response || "unknown")}`;
                 updateCollapsibles();
             }
 
             async function onScanButton() {
-                disableAllButtons();
+                setBusy();
                 let priorText = this.innerText;
                 this.innerText = "Scanning...";
 
-                let response = await (await fetch(settings.scanURL)).text();
+                let response = "";
+                
+                response = await (await fetch(settings.scanURL)).text();
 
                 console.log(response);
 
@@ -271,16 +305,45 @@
 
                 csv2table(dataArray, settings.table, 0, true);
 
-                enableAllButtons();
+                setBusy(false);
                 this.innerText = priorText;
 
                 updateCollapsibles();
+            }
+
+            async function onSubmit(form, event) {
+
+                let caseId = form.elements.namedItem("caseid").value;
+                let caseServer = form.elements.namedItem("caseserver").value;
+
+                console.log([caseId, caseServer]);
+
+                await getWifiStatus();
+
+                if (state.wifi !== "ok") {
+                    alert("Please connect to WiFi!");
+                    return;
+                }
+
+                if (confirm("This action will disconnect you from the management console. Continue?")) {
+                    fetch(settings.submitURL, {
+                        method: "POST",
+                        body: caseId+caseServer,
+                    });
+                } else {
+                    alert("Action cancelled.");
+                }
+
             }
 
             settings.scanButton.addEventListener("click", onScanButton);
             settings.wifiCheck.addEventListener("click", getWifiStatus);
 
             document.addEventListener("click", updateCollapsibles);
+            //window.onerror = function(error) {
+            //    console.log(error);
+            //    setTimeout(function() { showError(error); }, 100);
+            //};
 
             updateCollapsibles();
             //settings.scanButton.click();

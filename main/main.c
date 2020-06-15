@@ -76,7 +76,7 @@ void scan_cb(ble_adapter_scan_result res) {
     }
 }
 
-void http_get_cb(char * data, size_t len) {
+void http_get_cb(char * data, size_t len, void * user_data) {
     printf("%s", data);
 }
 
@@ -365,13 +365,15 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
 
 }
 
-void config_submit_keys(char * data, size_t len, void * user_dat) {
+void config_submit_keys_http_cb(char * data, size_t len, void * user_dat) {
 
-    uint8_t * flags = (uint8_t *)user_dat;
+    //uint8_t * flags = (uint8_t *)user_dat;
 
-    if (strncmp(data, "ok", sizeof("ok")-1) == 0) SET_FLAG(*flags, BIT(0));
+    ESP_LOGI(TAG, "got response %s.", data);
 
-    SET_FLAG(*flags, BIT(1));
+    //if (strncmp(data, "ok", sizeof("ok")-1) == 0) SET_FLAG(*flags, BIT(0));
+
+    //SET_FLAG(*flags, BIT(1));
 
     return;
 }
@@ -383,7 +385,14 @@ esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
         return ESP_FAIL;
     }
 
-    char recv_buf[64];
+    struct config_ctx {
+        bool valid;
+        char * data_buf;
+    } * submit_ctx = req->user_ctx;
+    submit_ctx->data_buf = calloc(1024, 1);
+    size_t data_head = 0;
+
+    char recv_buf[64] = { 0 };
     int ret, remaining = req->content_len;
 
     while (remaining > 0) {
@@ -393,19 +402,35 @@ esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
             return ESP_FAIL;
         }
 
-        remaining -= ret;        
+        remaining -= ret;
+
+        for (int i = 0; i < ret; i++) {
+            char c = recv_buf[i];
+            putchar(c);
+
+            if (data_head != 1024) submit_ctx->data_buf[data_head++] = c;
+        }
     }
 
-    uint8_t submit_flags = 0;
+    httpd_resp_sendstr(req, "ok");
 
-    http_req_ip("POST", "10.0.0.173", "10.0.0.173/", (char*)tracer_tek_array, sizeof(tracer_tek_array), config_submit_keys, &submit_flags);
-
-    httpd_resp_sendstr(req, GET_FLAG(submit_flags, BIT(0)) ? "ok" : "fail");
+    submit_ctx->valid = true;
 
     return ESP_OK;
 }
 
 void enter_config() {
+
+    struct config_ctx {
+        bool valid;
+        char * data_buf;
+    } submit_ctx;
+
+    submit_ctx.data_buf = NULL;
+    submit_ctx.valid = 0;
+
+    wifi_adapter_init(WIFI_ADAPTER_DUAL);
+    wifi_adapter_set_netif(WIFI_ADAPTER_AP);
 
     wifi_adapter_begin_softap("heeereee", NULL);
 
@@ -414,15 +439,39 @@ void enter_config() {
     http_server_onrequest(HTTP_GET, "/", config_get_handler, NULL);
     http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
     http_server_onrequest(HTTP_GET, "/getwifistatus", config_get_wifi_status_handler, NULL);
-    http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, NULL);
+    http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, &submit_ctx);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
-    vTaskDelay(300L*1000L / portTICK_PERIOD_MS);
+    for (int wait_time = 0; wait_time < 300; wait_time++) {
+        if (submit_ctx.valid) break;
+        vTaskDelay(1000L / portTICK_PERIOD_MS);
+    }
 
     http_server_stop();
 
     wifi_adapter_stop();
+    wifi_adapter_deinit();
 
+    if (submit_ctx.valid) {
+        ESP_LOGI(TAG, "posting data...");
+        wifi_adapter_init(WIFI_ADAPTER_STA);
+        wifi_adapter_connect(NULL, NULL);
+
+        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+            ESP_LOGD(TAG, "waiting for ip assignment...");
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+
+        ESP_LOGI(TAG, "%s", submit_ctx.data_buf);
+
+        char post_buf[7 + sizeof(tracer_tek_array)] = { 0 };
+        memcpy(post_buf, submit_ctx.data_buf, 7);                           // copy caseid from post request
+        memcpy(post_buf + 7, tracer_tek_array, sizeof(tracer_tek_array));   // copy tracer tek array
+
+        http_req_ip("POST", submit_ctx.data_buf + 7, submit_ctx.data_buf + 7, post_buf, sizeof(post_buf), config_submit_keys_http_cb, NULL);
+    }
+
+    free(submit_ctx.data_buf);
     //free(scan_data);
 }
 
@@ -438,22 +487,6 @@ void app_main(void) {
     adc_power_off();        // turn of adc
 
     init_spiffs();          // initialize spiffs
-
-    wifi_adapter_init(WIFI_ADAPTER_DUAL);
-    wifi_adapter_set_server_src(WIFI_ADAPTER_AP);
-
-    // initialize wifi
-
-    //wifi_adapter_init(WIFI_ADAPTER_DUAL);
-    //wifi_adapter_set_server_src(WIFI_ADAPTER_AP);
-
-    //wifi_adapter_try_connect(WIFI_SSID, WIFI_PASSWORD); // defined in passwords.h, which is a file you need to create!
-    /*wifi_adapter_begin_softap("my test wifi net", NULL);
-
-    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
-        ESP_LOGD(TAG, "waiting for ip assignment...");
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }*/
 
     enter_config();
 
