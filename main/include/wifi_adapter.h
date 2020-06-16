@@ -77,9 +77,10 @@ static void wifi_adapter_event_handler(void * arg, esp_event_base_t event_base, 
 }
 
 void wifi_adapter_init(wifi_adapter_mode mode) {
-    tcpip_adapter_init();
-
-    if (!wifi_adapter_eloop_created) ESP_ERROR_CHECK(esp_event_loop_create_default());
+    if (!wifi_adapter_eloop_created) {
+        tcpip_adapter_init();
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+    }
 
     wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_cfg));
@@ -151,9 +152,16 @@ void wifi_adapter_deinit() {
     wifi_adapter_flags = 0;
 }
 
+// checks if the wifi adapter has credentials saved in nvs
+bool wifi_adapter_has_saved_credentials() {
+    wifi_config_t cfg = { 0 };
+    ESP_ERROR_CHECK(esp_wifi_get_config(ESP_IF_WIFI_STA, &cfg));
+    return strlen((char*)cfg.sta.ssid) > 0;
+}
+
 // tries to connect to an ap given an ssid and password. use a NULL password if the network is open. use a NULL ssid if you do not want to update the target network's credentials.
 void wifi_adapter_connect(const char * ssid, const char * pwd) {
-    if (ssid) {
+    if (ssid != NULL) {
         ESP_LOGI(TAG, "attempting to connect to %s.", ssid);
 
         wifi_config_t wifi_config = { 0 };
@@ -167,7 +175,6 @@ void wifi_adapter_connect(const char * ssid, const char * pwd) {
         
         ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
     }
-
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
 
@@ -207,11 +214,7 @@ void wifi_adapter_begin_scan() {
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    wifi_scan_config_t scan_cfg = { 0 };
-
-    scan_cfg.scan_time.active.max = 500;
-
-    ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_cfg, false));
+    ESP_ERROR_CHECK(esp_wifi_scan_start(NULL, false));
     SET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_SCANNING);
 }
 

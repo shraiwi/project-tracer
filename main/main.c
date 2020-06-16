@@ -35,7 +35,11 @@
 #define LED_PIN             2
 #define PHOTOCELL_PIN       34
 #define TOUCH_PIN           33
+
 #define SPIFFS_ROOT         "/spiffs"
+#define TEKFILE_NAME        "tekfile"
+
+#define TRACER_KEYSERVER    "10.0.0.173"
 
 #define POST_SSID_KEY_BEGIN "ssid["
 #define POST_PWD_KEY_BEGIN  "pwd["
@@ -72,7 +76,10 @@ void scan_cb(ble_adapter_scan_result res) {
             if (rpi_exists) break;
         }
 
-        if (!rpi_exists) cvec_append(scanned_data, pair);
+        if (!rpi_exists) {
+            //ESP_LOGI(TAG, "rpi: %x\taem: %x", *(uint32_t *)pair.rpi.value, *(uint32_t *)pair.aem.value);
+            cvec_append(scanned_data, pair);
+        }
     }
 }
 
@@ -91,101 +98,40 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
 
     cvec_crunch(scanned_data);  // free up unused memory
 
-    char * fname = b64_encode(&scanin, sizeof(scanin));
+    // to save on storeage, the tracer api will now not write to a scanfile if no peers are found.
+    if (cvec_len(scanned_data) > 0) {
+        char * fname = b64_encode(&scanin, sizeof(scanin));
+        fname = realloc(fname, strlen(SPIFFS_ROOT"/") + strlen(fname) + 1);
+        memmove(fname + strlen(SPIFFS_ROOT"/"), fname, strlen(fname) + 1);
+        memcpy(fname, SPIFFS_ROOT"/", strlen(SPIFFS_ROOT"/"));
 
-    fname = realloc(fname, sizeof(SPIFFS_ROOT) + 1 + strlen(fname));
+        ESP_LOGD(TAG, "writing to %s...", fname);
 
-    memmove(fname + sizeof(SPIFFS_ROOT), fname, strlen(fname) + 1);
-    memcpy(fname, SPIFFS_ROOT, sizeof(SPIFFS_ROOT)-1);
-    fname[sizeof(SPIFFS_ROOT)-1] = '/';
+        FILE * scan_record = fopen(fname, "w");
 
-    ESP_LOGD(TAG, "writing to %s...", fname);
+        free(fname);
 
-    FILE * scan_record = fopen(fname, "w");
+        if (scan_record != NULL) {
+            fwrite(scanned_data, cvec_sizeof(scanned_data), 1, scan_record);
+        } else {
+            ESP_LOGE(TAG, "file null!");
+        }
 
-    free(fname);
-
-    if (scan_record == NULL) {
-        ESP_LOGE(TAG, "\tfile null!");
+        ESP_LOGI(TAG, "found %d peers.", cvec_len(scanned_data));
 
         fclose(scan_record);
-        cvec_free(scanned_data);
-
-        return;
+    } else {
+        ESP_LOGI(TAG, "no peers found.");
     }
-
-    ESP_LOGV(TAG, "found %d peers.", cvec_len(scanned_data));
-
-    fwrite(scanned_data, cvec_sizeof(scanned_data), 1, scan_record);
-
-    fclose(scan_record);
 
     cvec_free(scanned_data);
 }
 
 // saves the teks to spiffs.
 void save_teks() {
-    FILE * tek_file = fopen(SPIFFS_ROOT"/tek_file", "w");
+    FILE * tek_file = fopen(SPIFFS_ROOT "/" TEKFILE_NAME, "w+");
     fwrite(tracer_tek_array, 1, sizeof(tracer_tek_array), tek_file);
     fclose(tek_file);
-}
-
-void delete_old_enins(uint32_t epoch) {
-
-    uint32_t enin = tracer_en_interval_number(epoch);
-
-    ESP_LOGD(TAG, "scanning files...");
-
-    DIR * root_dir = opendir(SPIFFS_ROOT);
-    struct dirent * de;
-
-    while ((de = readdir(root_dir)) != NULL) {
-        uint32_t * file_enin = b64_decode(de->d_name);
-        ESP_LOGD(TAG, "\tfile: %s\n\tderived enin: %u", de->d_name, *file_enin);
-        free(file_enin);
-    }
-
-    closedir(root_dir);
-}
-
-void test_light_comms(int64_t time) {
-    
-    int64_t timeout = get_micros() + time * 1000L;
-
-    adc_power_on();
-    TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
-    ESP_ERROR_CHECK(esp_task_wdt_delete(idle_0));           // disable watchdog
-
-    flasher_config(100, 5000L, 33333L, 500, get_micros());
-
-    char c = 0;
-    uint8_t c_head = 0;
-
-    uint8_t header_counter = 0;
-
-    bool receiving = false;
-
-    while (get_micros() < timeout || receiving) {
-        int8_t bit = flasher_feed(adc1_get_raw(ADC1_CHANNEL_6), get_micros());
-        receiving = header_counter >= 3;
-        if (bit == 2) {
-            header_counter++;
-        } else if (bit > -1 && bit < 2 && receiving) {
-            if (receiving) {
-                c |= bit << c_head++;
-                if (c_head == 8) {
-                    ESP_LOGI(TAG, "%c", c);
-                    c = 0;
-                    c_head = 0;
-                }
-            } else {
-                header_counter = 0;
-            }
-        }
-    }
-
-    adc_power_off();
-    ESP_ERROR_CHECK(esp_task_wdt_add(idle_0));              // enable watchdog
 }
 
 static void touch_isr(void * arg) {
@@ -308,8 +254,8 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
     char recv_buf[64];
     int ret, remaining = req->content_len;
 
-    streamop_match_token match_ssid_begin = streamop_token_from_str(POST_SSID_KEY_BEGIN);
-    streamop_match_token match_pwd_begin = streamop_token_from_str(POST_PWD_KEY_BEGIN);
+    streamop_token match_ssid_begin = streamop_create_token_from_str(POST_SSID_KEY_BEGIN);
+    streamop_token match_pwd_begin = streamop_create_token_from_str(POST_PWD_KEY_BEGIN);
 
     bool ssid_block = false, pwd_block = false;
 
@@ -359,10 +305,26 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
     } else {
         httpd_resp_sendstr(req, "ok");
         ESP_LOGI(TAG, "wifi connected!");
+        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+        timesync_sync();
+        ESP_LOGI(TAG, "time synced!");
     }
 
     return ESP_OK;
 
+}
+
+esp_err_t config_get_flash_state(httpd_req_t * req) {
+    size_t total, used;
+    ESP_ERROR_CHECK(esp_spiffs_info(NULL, &total, &used));
+
+    char datastring[64] = { 0 };
+    sprintf(datastring, "%u/%u", used, total);
+    httpd_resp_sendstr(req, datastring);
+
+    return ESP_OK;
 }
 
 void config_submit_keys_http_cb(char * data, size_t len, void * user_dat) {
@@ -419,7 +381,8 @@ esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
     return ESP_OK;
 }
 
-void enter_config() {
+// boots up the configuration menu for time seconds. if time is 0, the configuration menu will be open until the wifi is connected or a positive id post is requested. either
+void enter_config(uint32_t time) {
 
     struct config_ctx {
         bool valid;
@@ -432,23 +395,33 @@ void enter_config() {
     wifi_adapter_init(WIFI_ADAPTER_DUAL);
     wifi_adapter_set_netif(WIFI_ADAPTER_AP);
 
-    wifi_adapter_begin_softap("heeereee", NULL);
+    char ssid_name[32] = "tracer-";
+    size_t ssid_name_head = strlen(ssid_name);
+    const char ssid_alphabet[] = "abcdefghijklmnopqrstuvwxyz";
+
+    for (int i = 0; i < 5; i++) {
+        ssid_name[ssid_name_head++] = ssid_alphabet[rand() % strlen(ssid_alphabet)];
+    }
+
+    wifi_adapter_begin_softap(ssid_name, NULL);
 
     http_server_begin();
 
     http_server_onrequest(HTTP_GET, "/", config_get_handler, NULL);
     http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
     http_server_onrequest(HTTP_GET, "/getwifistatus", config_get_wifi_status_handler, NULL);
+    http_server_onrequest(HTTP_GET, "/getspiffsstate", config_get_flash_state, NULL);
     http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, &submit_ctx);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
-    for (int wait_time = 0; wait_time < 300; wait_time++) {
-        if (submit_ctx.valid) break;
+    for (int wait_time = 0; wait_time < time; wait_time += (time > 0)) {
+        if (submit_ctx.valid || GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) break;
         vTaskDelay(1000L / portTICK_PERIOD_MS);
     }
 
     http_server_stop();
 
+    wifi_adapter_disconnect();
     wifi_adapter_stop();
     wifi_adapter_deinit();
 
@@ -457,55 +430,249 @@ void enter_config() {
         wifi_adapter_init(WIFI_ADAPTER_STA);
         wifi_adapter_connect(NULL, NULL);
 
-        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
-            ESP_LOGD(TAG, "waiting for ip assignment...");
+        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+            ESP_LOGD(TAG, "waiting for connection...");
             vTaskDelay(100 / portTICK_PERIOD_MS);
         }
 
-        ESP_LOGI(TAG, "%s", submit_ctx.data_buf);
+        if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+            ESP_LOGE(TAG, "can't connect to wifi!");
+        } else {
+            while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+                ESP_LOGD(TAG, "waiting for ip assignment...");
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+            }
+            //ESP_LOGI(TAG, "%s", submit_ctx.data_buf);
 
-        char post_buf[7 + sizeof(tracer_tek_array)] = { 0 };
-        memcpy(post_buf, submit_ctx.data_buf, 7);                           // copy caseid from post request
-        memcpy(post_buf + 7, tracer_tek_array, sizeof(tracer_tek_array));   // copy tracer tek array
+            char post_buf[7 + sizeof(tracer_tek_array)] = { 0 };
+            memcpy(post_buf, submit_ctx.data_buf, 7);                           // copy caseid from post request
+            memcpy(post_buf + 7, tracer_tek_array, sizeof(tracer_tek_array));   // copy tracer tek array
 
-        http_req_ip("POST", submit_ctx.data_buf + 7, submit_ctx.data_buf + 7, post_buf, sizeof(post_buf), config_submit_keys_http_cb, NULL);
+            http_req_ip("POST", TRACER_KEYSERVER, TRACER_KEYSERVER"/", post_buf, sizeof(post_buf), config_submit_keys_http_cb, NULL);
+
+            wifi_adapter_disconnect();
+        }
+
+        wifi_adapter_stop();
+        wifi_adapter_deinit();
     }
 
     free(submit_ctx.data_buf);
     //free(scan_data);
 }
 
+// tests a chunk of teks against stored matches.
+void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
+    ESP_LOGI(TAG, "validating %u teks.", tek_array_len);
+
+    DIR * root_dir = opendir(SPIFFS_ROOT);
+    struct dirent * de;
+
+    tracer_tek stream_tek;
+    streamop_token tek_token = streamop_create_chunk_token(&stream_tek, sizeof(tracer_tek));
+
+    while ((de = readdir(root_dir)) != NULL) {
+        if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
+            ESP_LOGI(TAG, "found tekfile!");
+        } else {
+            uint32_t * decoded_enin = b64_decode(de->d_name);
+            uint32_t file_enin = *decoded_enin;
+            free(decoded_enin);
+
+            ESP_LOGD(TAG, "file: %s\tderived enin: %u", de->d_name, file_enin);
+
+            char ffullpath[strlen(de->d_name) + strlen(SPIFFS_ROOT"/") + 1];
+            memcpy(ffullpath, SPIFFS_ROOT"/", sizeof(SPIFFS_ROOT"/"));
+            strcat(ffullpath, de->d_name);
+
+            FILE * scanfile = fopen(ffullpath, "r");
+
+            if (scanfile == NULL) {
+                ESP_LOGE(TAG, "couldn't open file %s!", ffullpath);
+            } else {
+                tracer_datapair datapair;
+                while (fread(&datapair, sizeof(tracer_datapair), 1, scanfile)) {
+                    for (size_t i = 0; i < tek_array_len; i++) {
+                        if (tracer_verify(datapair, tek_array[i], NULL)) {
+                            ESP_LOGW(TAG, "tek match!");
+                        }
+                    }
+                }
+            }
+            fclose(scanfile);
+        }
+    }
+
+    closedir(root_dir);
+}
+
+void validate_tek_http_stream(char * data, size_t data_len, void * user_dat) {
+
+    //ESP_LOGD(TAG, "scanning files...");
+    ESP_LOGI(TAG, "recieved chunk %u bytes long.", data_len);
+
+    struct {
+        tracer_tek tek_buffer[128];
+        size_t tek_buffer_head;
+        size_t expected_chunk_len;
+        tracer_tek current_tek;
+        streamop_token chunker;
+        streamop_token http_end;
+        bool body_valid;
+    } * stream_ctx = user_dat;
+
+    for (size_t i = 0; i < data_len; i++) {
+        char c = data[i];
+        if (stream_ctx->body_valid) {
+            ESP_LOGI(TAG, "body now valid.");
+            if (streamop_chunk_character(&stream_ctx->chunker, c) == STREAMOP_CHUNK_OK) {
+                stream_ctx->tek_buffer[stream_ctx->tek_buffer_head++] = stream_ctx->current_tek;
+                if (stream_ctx->tek_buffer_head == 128) {
+                    test_teks(stream_ctx->tek_buffer, stream_ctx->tek_buffer_head);
+                    stream_ctx->tek_buffer_head = 0;
+                }
+            }
+        }
+        stream_ctx->body_valid |= streamop_match_character(&stream_ctx->http_end, c) == STREAMOP_MATCH;
+    }
+    if (stream_ctx->expected_chunk_len != data_len) {   // on the last chunk
+        test_teks(stream_ctx->tek_buffer, stream_ctx->tek_buffer_head);
+        stream_ctx->tek_buffer_head = 0;
+    }
+}
+
+void check_teks() {
+    wifi_adapter_init(WIFI_ADAPTER_STA);
+    wifi_adapter_connect(WIFI_SSID, WIFI_PASSWORD);
+
+    while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+
+    if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+        ESP_LOGE(TAG, "wifi failed!");
+    } else {
+        ESP_LOGI(TAG, "wifi connected!");
+        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+        ESP_LOGI(TAG, "ip acquired, syncing time...");
+
+        timesync_sync();
+
+        ESP_LOGI(TAG, "time synced!");
+
+        struct {
+            tracer_tek tek_buffer[128];
+            size_t tek_buffer_head;
+            size_t expected_chunk_len;
+            tracer_tek current_tek;
+            streamop_token chunker;
+            streamop_token http_end;
+            bool body_valid;
+        } tek_stream_ctx;
+
+        memset(tek_stream_ctx.tek_buffer, 0, sizeof(tek_stream_ctx.tek_buffer));
+        tek_stream_ctx.tek_buffer_head = 0;
+        tek_stream_ctx.expected_chunk_len = 64;
+        tek_stream_ctx.chunker = streamop_create_chunk_token(&tek_stream_ctx.current_tek, sizeof(tracer_tek));
+
+        tek_stream_ctx.http_end = streamop_create_token_from_str("\r\n\r\n");
+        tek_stream_ctx.body_valid = false;
+
+        http_req_ip("GET", TRACER_KEYSERVER, TRACER_KEYSERVER"/", NULL, 0, validate_tek_http_stream, &tek_stream_ctx);
+    }
+
+    wifi_adapter_stop();
+    wifi_adapter_deinit();    
+}
+
+// deletes scanfiles older than max_scanin_age
+void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
+
+    DIR * root_dir = opendir(SPIFFS_ROOT);
+    struct dirent * de;
+
+    uint32_t min_age = tracer_scan_interval_number(epoch) - max_scanin_age;
+
+    while ((de = readdir(root_dir)) != NULL) {
+        if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
+            ESP_LOGI(TAG, "found tekfile!");
+        } else {
+            uint32_t * decoded_enin = b64_decode(de->d_name);
+            uint32_t file_enin = *decoded_enin;
+            free(decoded_enin);
+
+            char ffullpath[strlen(de->d_name) + strlen(SPIFFS_ROOT"/") + 1];
+            memcpy(ffullpath, SPIFFS_ROOT"/", sizeof(SPIFFS_ROOT"/"));
+            strcat(ffullpath, de->d_name);
+
+            if (file_enin < min_age) {
+                ESP_LOGI(TAG, "deleting file %s", de->d_name);
+                remove(ffullpath);
+            }
+        }
+    }
+
+    closedir(root_dir);
+}
+
+// initializes confiuration if 
+void startup_config() {
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    bool has_persistence = wifi_adapter_has_saved_credentials();
+
+    ESP_ERROR_CHECK(esp_wifi_stop());
+    ESP_ERROR_CHECK(esp_wifi_deinit());
+
+    if (!has_persistence) {
+        ESP_LOGI(TAG, "wifi credentials not found, entering configuration.");
+        enter_config(0);
+    } else {
+        ESP_LOGI(TAG, "persistent credentials found, syncing system time.");
+        wifi_adapter_init(WIFI_ADAPTER_STA);
+        wifi_adapter_connect(NULL, NULL);
+
+        while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+            ESP_LOGD(TAG, "waiting for connection...");
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+
+        if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
+            ESP_LOGE(TAG, "can't connect to wifi!");
+        } else {
+            while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
+                ESP_LOGD(TAG, "waiting for ip assignment...");
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+            }
+
+            timesync_sync();
+
+            wifi_adapter_disconnect();
+        }
+
+        wifi_adapter_stop();
+        wifi_adapter_deinit();
+    }
+    
+}
+
 void app_main(void) {
     ESP_LOGI(TAG, "esp booted!");
 
     ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(nvs_flash_erase());
+    //ESP_ERROR_CHECK(nvs_flash_erase());
 
     init_touch();           // initialize touch and activate callbacks
     init_gpio();            // initialize GPIO
 
-    adc_power_off();        // turn of adc
+    adc_power_off();        // turn off adc
 
     init_spiffs();          // initialize spiffs
 
-    enter_config();
-
-    //timesync_sync();
-
-    //time_t now;
-    //time(&now);
-
-    //ESP_LOGI(TAG, "date: %s", ctime(&now));
-
-    //http_get("example.com", "80", "/", http_get_cb);
-    //http_req("GET", "www.example.com", "http://www.example.com/", NULL, 0, http_get_cb);
-
-    //http_req("POST", "www.postman-echo.com", "http://postman-echo.com/post", "hello world!", sizeof("hello world!"), http_get_cb);
-
-    //https_req("GET", "www.howsmyssl.com", "https://www.howsmyssl.com/a/check", NULL, 0, HOWSMYSSL_PEM, http_get_cb);
-    
-    //wifi_adapter_disconnect();
-    //wifi_adapter_stop();
+    startup_config();
 
     // initialize ble adapter
 
@@ -533,7 +700,7 @@ void app_main(void) {
 
     // testing stuff
 
-    delete_old_enins(epoch);
+    //delete_old_enins(epoch);
 
     uint32_t last_datapair_epoch = epoch;
     uint32_t last_scan_epoch = epoch;
@@ -542,15 +709,9 @@ void app_main(void) {
     while (true) {
         if (touch_wake) {
 
-            ESP_LOGI(TAG, "scanning for light data.");
+            ESP_LOGI(TAG, "entering configuration mode for 300 seconds...");
 
-            test_light_comms(30L*1000L);
-
-            //char * data = derive_light_data(10000); // scan for light data for 10 seconds
-
-            //ESP_LOGI(TAG, "recieved light data %s.", data);
-
-            //free(data);
+            enter_config(300);
 
             touch_wake = false;
         }
@@ -562,6 +723,7 @@ void app_main(void) {
         if (tracer_detect_tek_rollover(tek.epoch, epoch)) {
             ESP_LOGI(TAG, "tek rollover!");
             tek = *tracer_derive_tek(epoch);
+            check_teks();
         } 
 
         if (tracer_detect_enin_rollover(last_datapair_epoch, epoch)) {
@@ -575,6 +737,7 @@ void app_main(void) {
         if (tracer_detect_scanin_rollover(last_scan_epoch, epoch)) {
             ESP_LOGI(TAG, "scanin rollover!");
             scan_for_peers(epoch, 600);
+            free_spiffs(epoch, TRACER_SCAN_EXPIRY);
             last_scan_epoch = epoch;
         }
 

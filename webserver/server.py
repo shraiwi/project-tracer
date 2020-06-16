@@ -16,6 +16,12 @@ import base64
 import time
 import csv
 
+class settings():
+    caseid_len = 7          # how many characters long a tek is
+    caseid_purge_age = 14   # how long caseids last
+    tek_life = 14           # how long a tek lasts (how many the server should expect)
+    packed_tek_len = 20     # how long a packed tek is in bytes (4 bytes epoch, 16 bytes tek)
+
 # gets the unix epoch time
 def get_epoch() -> int:
     return int(time.time())
@@ -26,7 +32,7 @@ def derive_enin(epoch : int):
 
 # splits a datapair into an epoch and tek string. can be used for storage.
 def unpack_tek(tek : bytes) -> Tuple[int, str]:
-    return derive_enin(int.from_bytes(tek[:4], "little")), base64.b64encode(tek[4:20]).decode("utf-8")
+    return derive_enin(int.from_bytes(tek[:4], "little")), base64.b64encode(tek[4:settings.packed_tek_len]).decode("utf-8")
 
 # turns a tek into its binary representation
 def pack_tek(epoch : int, tek : str) -> bytes:
@@ -67,7 +73,7 @@ def iter_caseids() -> Iterable[Tuple[int, str]]:
 
 # validates a caseid against a caseid array. if the caseid is valid, it will return a tuple containing the matching caseid.
 def burn_caseid(test_caseid: str, caseid_array: Set[Tuple[int, str]]) -> Tuple[CaseIDType, Tuple[int, str]]:
-    min_age = get_epoch() - 14 * 24 * 60 * 60
+    min_age = get_epoch() - settings.caseid_purge_age * 24 * 60 * 60
     for epoch, caseid in caseid_array:
         if caseid.casefold() == test_caseid.casefold():
             if epoch > min_age: 
@@ -78,7 +84,7 @@ def burn_caseid(test_caseid: str, caseid_array: Set[Tuple[int, str]]) -> Tuple[C
 
 # randomly generates a 7-character case id and adds it to the caseid array
 def gen_caseid(epoch: int, caseid_array: Set[Tuple[int, str]]) -> str:
-    data = base64.b32encode(secrets.token_bytes(4)).decode("utf-8")[:-1]
+    data = base64.b32encode(secrets.token_bytes(4)).decode("utf-8")[:7]
     caseid_array.add((epoch, data))
     return data
 
@@ -95,6 +101,7 @@ class TracerServerHandler(BaseHTTPRequestHandler):
         return dict([*default.items()] + [*urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, False).items()])
 
     def do_GET(self):
+        global tek_file_path
         self.send_headers()
         query = self.get_query({ 
             "oldest" : [0] 
@@ -106,26 +113,25 @@ class TracerServerHandler(BaseHTTPRequestHandler):
             tek_reader = csv.reader(tek_file)
             for row in tek_reader:
                 epoch = int(row[0])
-                #print(row, query)
-                if epoch > oldest_age:
+                if epoch >= oldest_age:
                     self.wfile.write(pack_tek(epoch, row[1]))
-            
-            #shutil.copyfileobj(tek_file, self.wfile)
 
     def do_POST(self):
         global active_caseid_array, pending_teks
 
         self.send_headers()
         content_len = int(self.headers["Content-Length"])
-        if (content_len - 7) % 20 == 0:
-            caseid = self.rfile.read(7).decode("utf-8")
+        content_len -= settings.caseid_len
+        if content_len // settings.packed_tek_len == settings.tek_life:
+            caseid = self.rfile.read(settings.caseid_len).decode("utf-8")
             ret, match_caseid = burn_caseid(caseid, active_caseid_array)
             if ret == CaseIDType.VALID:
                 active_caseid_array.remove(match_caseid)
-                for i in range((content_len - 7) // 20):
-                    chunk = self.rfile.read(20)
+                for i in range(settings.tek_life):
+                    chunk = self.rfile.read(settings.packed_tek_len)
                     if not chunk: break
-                    pending_teks.append(unpack_tek(chunk))
+                    tek = unpack_tek(chunk)
+                    if tek[0]: pending_teks.append(tek)
                 self.wfile.write(b"ok")
                 return
             elif burn_caseid == CaseIDType.TOO_OLD:
@@ -171,8 +177,8 @@ command_list = {
     "list_caseid":          lambda cmd: "\n".join(map("epoch: %d\tcaseid: %s".__mod__, active_caseid_array)),
     "get_caseid":           lambda cmd: reload_caseid_array(),
     "commit_caseid":        lambda cmd: commit_caseids(active_caseid_array),
-    "commit_pending_teks":  commit_pending_teks,
-    "list_pending_teks":    lambda cmd: "\n".join(map("epoch: %d\ttek: %s".__mod__, pending_teks)),
+    "commit_teks":          commit_pending_teks,
+    "list_teks":            lambda cmd: "\n".join(map("epoch: %d\ttek: %s".__mod__, pending_teks)),
     "help":                 lambda cmd: "available commands:\n\t"+"\n\t".join(command_list.keys()),
     "exit":                 shutdown
 }

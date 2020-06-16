@@ -34,7 +34,7 @@ void timesync_sync() {
 
     while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET) {
         ESP_LOGD(TAG, "waiting for sync...");
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 
     ESP_LOGI(TAG, "sync complete");

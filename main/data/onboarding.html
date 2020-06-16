@@ -50,14 +50,11 @@
                 overflow: hidden;
                 padding: 0;
                 opacity: 0;
-                margin-top: 0;
-                margin-left: 0;
+                margin: 0;
                 height: 0;
             }
             .collapsible>input:checked ~ div { 
-                margin-top: 5px;
-                margin-left: 20px;
-                margin-bottom: 2px;
+                margin: 5px 20px 2px 20px;
                 opacity: 1;
                 height: var(--max-height);
             }
@@ -69,22 +66,22 @@
             }
             .collapsible>input:checked ~ label::before { content: "\25BE"; }
 
-            p.wifi-unknown::after {
+            .wifi-unknown::after {
                 font-weight: bolder;
                 content: "Unknown";
                 color: orange;
             }
-            p.wifi-ok::after {
+            .wifi-ok::after {
                 font-weight: bolder;
                 content: "Connected";
                 color: green;
             }
-            p.wifi-fail::after {
+            .wifi-fail::after {
                 font-weight: bolder;
                 content: "Connection Failed";
                 color: red;
             }
-            p.wifi-disconnected::after {
+            .wifi-disconnected::after {
                 font-weight: bolder;
                 content: "Disconnected";
                 color: red;
@@ -108,6 +105,15 @@
                 opacity: 1;
                 transform: translateX(-50%) translateY(0%);
             }
+
+            .cardfield {
+                margin-top: 5px;
+                margin-bottom: 5px;
+            }
+
+            .cardfield button {
+                float: right;
+            }
         </style>
     </head>
     <body>
@@ -117,10 +123,17 @@
         </div>
         <div class="collapsible">
             <input id="wifi-status" type="checkbox">
-            <label for="wifi-status">WiFi Status</label>
+            <label for="wifi-status">System Status</label>
             <div>
-                <p id="wifiStatus" class="wifi-unknown">WiFi Status: </p>
-                <button id="checkWifi">Get WiFi Status</button>
+                <div class="cardfield">
+                    <button id="checkWifi">Get WiFi Status</button>
+                    <label id="wifiStatus" class="wifi-unknown">WiFi Status: </label>
+                </div>
+                <div class="cardfield">
+                    <button id="checkFlash">Get Flash Status</button>
+                    <label for="flashUsage">Flash Usage: </label>
+                    <progress id="flashUsage" value="0.0" max="1.0"></progress>
+                </div>
             </div>
         </div>
         <div class="collapsible">
@@ -139,8 +152,6 @@
                 <form onsubmit="onSubmit(this, event); return false;">
                     <label for="caseid">Case ID:</label>
                     <input type="text" id="caseid"><br>
-                    <label for="caseserver">Server Location:</label>
-                    <input type="text" id="caseserver"><br>
                     <input type="submit">
                 </form>
             </div>
@@ -151,6 +162,9 @@
                 scanButton: document.getElementById("scanButton"),
                 wifiCheck: document.getElementById("checkWifi"),
                 wifiStatus: document.getElementById("wifiStatus"),
+                flashButton: document.getElementById("checkFlash"),
+                flashStatus: document.getElementById("flashUsage"),
+                flashURL: "/getspiffsstate",
                 scanURL: "/scandata",
                 postURL: "/postwifi",
                 submitURL: "/submitkeys",
@@ -270,11 +284,13 @@
             }
 
             async function getWifiStatus() {
+                setBusy();
                 let response = await (await fetch(settings.wifiStatURL)).text();
                 console.log(response);
                 setSectionVisibility("wifi-status", true);
                 settings.wifiStatus.className = `wifi-${state.wifi = (response || "unknown")}`;
                 updateCollapsibles();
+                setBusy(false);
             }
 
             async function onScanButton() {
@@ -314,9 +330,9 @@
             async function onSubmit(form, event) {
 
                 let caseId = form.elements.namedItem("caseid").value;
-                let caseServer = form.elements.namedItem("caseserver").value;
+                //let caseServer = form.elements.namedItem("caseserver").value;
 
-                console.log([caseId, caseServer]);
+                //console.log([caseId, caseServer]);
 
                 await getWifiStatus();
 
@@ -328,7 +344,7 @@
                 if (confirm("This action will disconnect you from the management console. Continue?")) {
                     fetch(settings.submitURL, {
                         method: "POST",
-                        body: caseId+caseServer,
+                        body: caseId//+caseServer,
                     });
                 } else {
                     alert("Action cancelled.");
@@ -336,8 +352,17 @@
 
             }
 
+            async function onFlashStatus() {
+                setBusy();
+                let response = await (await fetch(settings.flashURL)).text();
+                let [used, total] = response.split("/");
+                settings.flashStatus.value = +used / +total;
+                setBusy(false);
+            }
+
             settings.scanButton.addEventListener("click", onScanButton);
             settings.wifiCheck.addEventListener("click", getWifiStatus);
+            settings.flashButton.addEventListener("click", onFlashStatus);
 
             document.addEventListener("click", updateCollapsibles);
             //window.onerror = function(error) {

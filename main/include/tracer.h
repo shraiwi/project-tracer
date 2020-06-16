@@ -11,12 +11,15 @@
 #define sizeof_member(type, member) sizeof(((type*)0)->member)
 
 // settings (timing)
-#define TRACER_SCAN_INTERVAL    1       // how many minutes in between scans
-#define TRACER_TEK_INTERVAL     2       // how many minutes until a new tek is generated. must be divisible by TRACER_ENIN_INTERVAL.
-#define TRACER_ENIN_INTERVAL    1       // how many minutes each eninterval is.
-#define TRACER_TEK_STORE_PERIOD 14      // how many tek intervals to store the keys for.
-#define TRACER_ENINS_PER_DAY    (TRACER_TEK_INTERVAL / TRACER_ENIN_INTERVAL)        // how many enintervals are in a day
-#define TRACER_ENIN_EXPIRY      (TRACER_TEK_STORE_PERIOD * TRACER_ENINS_PER_DAY)    // how many enintervalnumbers to store data for
+#define TRACER_SCAN_INTERVAL        1       // how many minutes in between scans
+#define TRACER_TEK_INTERVAL         2       // how many minutes until a new tek is generated. must be divisible by TRACER_ENIN_INTERVAL.
+#define TRACER_ENIN_INTERVAL        1       // how many minutes each eninterval is.
+#define TRACER_SCAN_STORE_PERIOD    28      // how many days to store scans for
+#define TRACER_TEK_STORE_PERIOD     14      // how many tek intervals to store the keys for.
+#define TRACER_ENINS_PER_DAY        (TRACER_TEK_INTERVAL / TRACER_ENIN_INTERVAL)                                // how many enintervals are in a day
+#define TRACER_MINUTES_PER_DAY      (24 * 60)                                                                   // how many minutes there are in a day
+#define TRACER_SCAN_EXPIRY          (TRACER_MINUTES_PER_DAY * TRACER_SCAN_STORE_PERIOD / TRACER_SCAN_INTERVAL)  // how many scan intervals to store scans for
+#define TRACER_ENIN_EXPIRY          (TRACER_TEK_STORE_PERIOD * TRACER_ENINS_PER_DAY)                            // how many enintervalnumbers to store data for
 
 // settings (metadata)
 #define TRACER_MAJOR_VERSION    1       // standard major version x.0
@@ -289,7 +292,7 @@ bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * data
                 if (data_len == 2 + sizeof(datapair->rpi.value) + sizeof(datapair->aem.value)) {    // check if the package is the right size
                     if (datapair) {
                         memcpy(datapair->rpi.value, data + 2, sizeof(datapair->rpi.value));
-                        memcpy(datapair->aem.value, data + 2 + sizeof(datapair->aem.value), sizeof(datapair->aem.value));
+                        memcpy(datapair->aem.value, data + 2 + sizeof(datapair->rpi.value), sizeof(datapair->aem.value));
                     }
                     output_valid = true;
                 }
@@ -339,7 +342,7 @@ bool tracer_verify(tracer_datapair datapair, tracer_tek tek, tracer_metadata * o
     bool valid = memcmp(decrypted_rpik, RPI_STRING, sizeof(RPI_STRING)) == 0;
 
     if (valid && output_metadata) {
-        //uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
+        uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
         tracer_aemk aemk = tracer_derive_aemk(tek);
         flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, datapair.rpi.value, datapair.aem.value, sizeof(datapair.aem.value), output_metadata->value);
     }

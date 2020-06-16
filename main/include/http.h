@@ -153,8 +153,8 @@ int http_req(const char * method, const char * server, const char * url, char * 
     size_t head = 0;
     do {
         memset(recv_block, 0, DATA_BLOCK_SIZE);
-        bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE-1);
-        callback(recv_block, head, user_data);
+        bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE);
+        callback(recv_block, bytes_read, user_data);
         head += bytes_read;
     } while (bytes_read > 0);
 
@@ -239,8 +239,8 @@ int http_req_ip(const char * method, const char * server, const char * url, char
     size_t head = 0;
     do {
         memset(recv_block, 0, DATA_BLOCK_SIZE);
-        bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE-1);
-        callback(recv_block, head, user_data);
+        bytes_read = read(http_socket, recv_block, DATA_BLOCK_SIZE);
+        callback(recv_block, bytes_read, user_data);
         head += bytes_read;
     } while (bytes_read > 0);
 
@@ -316,7 +316,7 @@ int https_req(const char * method, const char * server, const char * url, char *
     }
 
     do {
-        len = DATA_BLOCK_SIZE - 1;
+        len = DATA_BLOCK_SIZE;
         memset(recv_buf, 0, DATA_BLOCK_SIZE);
         
         ret = esp_tls_conn_read(tls, recv_buf, len);
@@ -331,10 +331,8 @@ int https_req(const char * method, const char * server, const char * url, char *
             ESP_LOGI(TAG, "tls connection closed.");
             break;
         }
-
-        len = ret;
         
-        callback(recv_buf, len, user_data);
+        callback(recv_buf, ret, user_data);
     } while (true);
 
 
