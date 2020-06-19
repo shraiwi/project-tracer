@@ -4,7 +4,8 @@
 #define _TRACER_H_
 
 /**
- * tracer API
+ * @file
+ * @brief Contains all of the user-facing interactions in the Tracer API.
  */
 
 // gets size (in bytes) of an object's member.
@@ -35,96 +36,86 @@
 #error The tracer tek interval must be divisible by the tracer enin interval!
 #endif
 
-// MAC address
-typedef struct {
-    uint8_t value[6];
-} tracer_mac;
-
 /**
- * Temporary Exposure Key
+ * @brief A structure containing a Temporary Exposure Key and a UNIX Epoch signifying its creation time.
  */
 typedef struct {
-    uint32_t epoch;
-    uint8_t value[16];
+    uint32_t epoch;     /** The UNIX epoch time at the moment the TEK was generated. */
+    uint8_t value[16];  /** The 16-byte value of the TEK */
 } tracer_tek;
 
 /**
- * Rolling Proximity Identifier
+ * @brief A Rolling Proximity Identifier
  */
 typedef struct {
-    uint8_t value[16];
+    uint8_t value[16];  /** The 16-byte value of the RPI */
 } tracer_rpi;
 
 /**
- * Rolling Proximity Identifier Key
+ * @brief A Rolling Proximity Identifier Key; used to encrypt Rolling Proximity Identifiers
  */
 typedef struct {
-    uint8_t value[16];
+    uint8_t value[16];  /** The 16-byte value of the RPIK */
 } tracer_rpik;
 
 /**
- * Associated Encrypted Metadata Key
+ * @brief The Associated Encrypted Metadata to an RPI
  */
 typedef struct {
-    uint8_t value[16];
-} tracer_aemk;
-
-/**
- * Associated Encrypted Metadata
- */
-typedef struct {
-    uint8_t value[4];
+    uint8_t value[4];   /** The 4-byte value of the AEM */
 } tracer_aem;
 
 /**
- * Metadata
+ * @brief An Associated Encrypted Metadata Key; used to encrypt Associated Encrypted Metadata
  */
 typedef struct {
-    uint8_t value[4];
+    uint8_t value[16];  /** The 16-byte value of the RPIK */
+} tracer_aemk;
+
+/**
+ * @brief A container for unencrypted metadata
+ */
+typedef struct {
+    uint8_t value[4];   /** The unencrypted metadata. Typically includes the TX power and the API version */
 } tracer_metadata;
 
 /**
- * An RPI and AEM pair
+ * @brief An RPI and AEM pair
  */
 typedef struct {
-    tracer_rpi rpi;
-    tracer_aem aem;
+    tracer_rpi rpi;     /** The Rolling Proximity Identifier */
+    tracer_aem aem;     /** The Rolling Proximity Identifier's associated metadata */
 } tracer_datapair;
 
 /**
- * An RPIK and AEMK pair
+ * @brief An RPIK and AEMK pair
  */
 typedef struct {
-    tracer_rpik rpik;
-    tracer_aemk aemk;
+    tracer_rpik rpik;   /** The Rolling Proximity Identifier Key */
+    tracer_aemk aemk;   /** The Associated Encrypted Metadata Key */
 } tracer_keypair;
 
 /**
- * A record used for storing exposure notifications
+ * @brief A raw BLE advertising payload
  */
 typedef struct {
-    uint32_t en_interval_num;
-    int8_t rssi;
-    tracer_datapair datapair;
-} tracer_record;
-
-/**
- * BLE Advertising payload
- */
-typedef struct {
-    uint8_t value[31];  // ble payloads are already limited at 31 bytes
-    size_t len;         // length of the bluetooth payload
+    uint8_t value[31];  /** The raw data to be advertised */
+    size_t len;         /** The length of the BLE payload */
 } tracer_ble_payload;
-
-// remember: TEK + epoch => RPIK => RPI =|
-//                |=======> AEMK =====> AEM
 
 tracer_tek tracer_tek_array[TRACER_TEK_STORE_PERIOD];
 size_t tracer_tek_array_head = 0;
 
 tracer_keypair tracer_current_keypair;
 
-// adds a record to a tracer ble payload
+/**
+ * @brief Adds a record to the BLE payload
+ * 
+ * @param ble_payload A pointer to the target BLE playload
+ * @param type A byte representing the type of the BLE record
+ * @param data A pointer to the raw record data
+ * @param data_len The length of the record data
+ */
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
     ble_payload->value[ble_payload->len++] = data_len + 1;
     ble_payload->value[ble_payload->len++] = type;
@@ -132,16 +123,32 @@ void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t typ
     ble_payload->len += data_len;
 }
 
-// gets the enintervalnumber
+/**
+ * @brief Gets the ENIntervalNumber given an epoch
+ * 
+ * @param epoch The current UNIX epoch time
+ * @return The ENIntervalNumber, expressed as a 32-bit unsigned integer
+ */
 uint32_t tracer_en_interval_number(uint32_t epoch) {
     return (uint32_t)(epoch / (60 * TRACER_ENIN_INTERVAL));
 }
 
-// gets the scan interval number. this can be used to name scanfiles.
+/**
+ * @brief Gets the Scan Interval Number given an epoch
+ * 
+ * @param epoch The current UNIX epoch time
+ * @return The Scan Interval Number, expressed as a 32-bit unsigned integer
+ */
 uint32_t tracer_scan_interval_number(uint32_t epoch) {
     return (uint32_t)(epoch / (60 * TRACER_SCAN_INTERVAL));
 }
 
+/**
+ * @brief Derives a new Rolling Proximity Identifier Key from a Temporary Exposure Key
+ * 
+ * @param tek The Temporary Exposure Key to derive the RPI from
+ * @return The output Rolling Proximity Identifier Key
+ */
 tracer_rpik tracer_derive_rpik(tracer_tek tek) {
     char salt[16] = RPIK_STRING;
 
@@ -156,7 +163,13 @@ tracer_rpik tracer_derive_rpik(tracer_tek tek) {
     return out;
 }
 
-// derives a new rolling proximity identifier
+/**
+ * @brief Encrypts a Rolling Proximity Identifier from an RPIK and UNIX epoch
+ * 
+ * @param rpik The Temporary Exposure Key to encrypt the RPI
+ * @param epoch The current UNIX epoch time
+ * @return An encrypted Tracer Rolling Proximity Identifier
+ */
 tracer_rpi tracer_derive_rpi(tracer_rpik rpik, uint32_t epoch) {
     tracer_rpi out;
 
@@ -171,22 +184,23 @@ tracer_rpi tracer_derive_rpi(tracer_rpik rpik, uint32_t epoch) {
     return out;
 }
 
-// derive a new storage record
-tracer_record tracer_derive_record(tracer_datapair pair, int8_t rssi, uint32_t epoch) {
-    tracer_record out = {
-        .en_interval_num = tracer_en_interval_number(epoch),
-        .rssi = rssi,
-        .datapair = pair,
-    };
-    return out;
-}
-
-// tests 2 datapairs for equality
+/**
+ * @brief Compares the value of two datapairs
+ * 
+ * @param a A datapair to compare
+ * @param b A datapair to compare
+ * @return Whether or not the datapairs match
+ */
 bool tracer_compare_datapairs(tracer_datapair a, tracer_datapair b) {
     return memcmp(&a.aem.value, &b.aem.value, sizeof(a.aem.value)) == 0 && memcmp(&a.rpi.value, &b.rpi.value, sizeof(a.rpi.value)) == 0;
 }
 
-// derive new metadata
+/**
+ * @brief Derives unencrypted metadata
+ * 
+ * @param tx_power The transmitting power of the BLE radio, in dBm
+ * @return Unenecrypted metadata
+ */
 tracer_metadata tracer_derive_metadata(int8_t tx_power) {
     tracer_metadata out;
     memset(out.value, 0, sizeof(out.value));
@@ -199,7 +213,12 @@ tracer_metadata tracer_derive_metadata(int8_t tx_power) {
     return out;
 }
 
-// derive a new aemk
+/**
+ * @brief Derives an corresponding Associated Encrypted Metadata Key from a Temporary Exposure Key
+ * 
+ * @param tek The TEK to derive the AEMK from
+ * @return The TEK's corresponding AEMK
+ */
 tracer_aemk tracer_derive_aemk(tracer_tek tek) {
     tracer_aemk out;
 
@@ -212,6 +231,14 @@ tracer_aemk tracer_derive_aemk(tracer_tek tek) {
     return out;
 }
 
+/**
+ * @brief Encrypts metadata given an Associated Encrypted Metadata Key and Rolling Proximity Identifier
+ * 
+ * @param aemk The AEMK to encrypt the metadata with
+ * @param rpi The RPI to associate the metadata with
+ * @param metadata The source metadata
+ * @return The 4-byte encrypted metadata
+ */
 tracer_aem tracer_derive_aem(tracer_aemk aemk, tracer_rpi rpi, tracer_metadata metadata) {
     tracer_aem out;
 
@@ -220,6 +247,12 @@ tracer_aem tracer_derive_aem(tracer_aemk aemk, tracer_rpi rpi, tracer_metadata m
     return out;
 }
 
+/**
+ * @brief Derives a tracer keypair for generating an RPI and AEM
+ * 
+ * @param tek The Temporary Exposure Key to derive the keypair from
+ * @return A keypair containing both an Rolling Proximity Identifier Key and Associated Encrypted Metadata Key
+ */
 tracer_keypair tracer_derive_keypair(tracer_tek tek) {
     tracer_keypair out;
     out.rpik = tracer_derive_rpik(tek);
@@ -227,7 +260,12 @@ tracer_keypair tracer_derive_keypair(tracer_tek tek) {
     return out;
 }
 
-// derive a new ble payload given a datapair
+/**
+ * @brief Derives a new raw BLE payload given a datapair.
+ * 
+ * @param datapair The datapair to generate the BLE payload from
+ * @return A raw bluetooth payload containing all required data
+ */
 tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
     tracer_ble_payload out;
     
@@ -249,7 +287,12 @@ tracer_ble_payload tracer_derive_ble_payload(tracer_datapair datapair) {
     return out;
 }
 
-// returns the address of a newly generated temporary exposure key, and updates the current keypair
+/**
+ * @brief Generates a new Temporary Exposure Key and updates the latest keypair
+ * 
+ * @param epoch The current UNIX epoch time
+ * @return A pointer to the latest TEK
+ */
 tracer_tek * tracer_derive_tek(uint32_t epoch) {
     tracer_tek * out = &tracer_tek_array[tracer_tek_array_head++];
     tracer_tek_array_head %= TRACER_TEK_STORE_PERIOD;
@@ -261,12 +304,22 @@ tracer_tek * tracer_derive_tek(uint32_t epoch) {
     return out;
 }
 
-// gets the latest tek
+/**
+ * @brief Gets the latest Temporary Exposure Key generated
+ * 
+ * @return The the latest Temporary Exposure Key
+ */
 tracer_tek tracer_get_latest_tek() {
     return tracer_tek_array[(tracer_tek_array_head ? tracer_tek_array_head : TRACER_TEK_STORE_PERIOD) - 1];
 }
 
-// parses a ble payload and derives an rpi and aem from it. if the parsing is completed, the function returns true.
+/**
+ * @brief Attempts to parse a raw BLE adverising payload
+ * 
+ * @param payload The raw bluetooth payload to parse
+ * @param datapair A pointer to a datapair which will be overwritten with the drived datapair in the case that the data is valid.
+ * @return Whether or not the parsing was successful
+ */
 bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * datapair) {
 
     bool output_valid = false, payload_valid = false;
@@ -279,10 +332,6 @@ bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * data
 
         uint8_t * data = payload.value + i;
         uint8_t data_len = record_len - 1;
-
-        //printf("record @ idx %d of type 0x%02x with length %d. data: ", i, type, data_len);
-        //print_hex_buffer(data, data_len);
-        //printf("\n");
 
         switch (type) {
             case 0x03:  // service uuid
@@ -304,55 +353,75 @@ bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * data
     return output_valid && payload_valid;
 }
 
-// detects if there needs to be new datapair generated
+/**
+ * @brief Detects if there has been an ENIntervalNumber rollover
+ * 
+ * @param last_epoch The last time the ENIntervalNumber changed, as a 32-bit unsigned UNIX epoch
+ * @param current_epoch The current UNIX epoch time
+ * @return Whether or not there should be a new datapair derivation
+ */
 bool tracer_detect_enin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
     return (tracer_en_interval_number(last_epoch) < tracer_en_interval_number(current_epoch));
 }
 
-// detects if there needs to be new scan.
+/**
+ * @brief Detects whether or not there should be a BLE scan performed.
+ * 
+ * @param last_epoch The last time a scan was performed, as a 32-bit unsigned UNIX epoch
+ * @param current_epoch The current UNIX epoch time
+ * @return Whether or not there should be a BLE scan performed.
+ */
 bool tracer_detect_scanin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
     return (tracer_scan_interval_number(last_epoch) < tracer_scan_interval_number(current_epoch));
 }
 
-// detects if there needs to be a new tek generated
+/**
+ * @brief Detects if there needs to be a new TEK generated
+ * 
+ * @param last_epoch The last time a TEK was generated, as a 32-bit unsigned UNIX epoch
+ * @param current_epoch The current UNIX epoch time
+ * @return Whether or not a new TEK should be generated.
+ */
 bool tracer_detect_tek_rollover(uint32_t last_epoch, uint32_t current_epoch) {
     uint32_t last_enin = tracer_en_interval_number(last_epoch), current_enin = tracer_en_interval_number(current_epoch);
     return ((current_enin > last_enin) && ((current_enin % TRACER_ENINS_PER_DAY) == 0)) || (current_enin - last_enin >= TRACER_ENINS_PER_DAY);
 }
 
-/*  example data:
-tek: 4c22bda759942e0758e47922ed4d6c3e
-rpik: 1ab8a1141ecd1a6ee9f6a33b7296322a
-aemk: e47c05afa4c51eeb286344f1aa634111
-rpi: f603d5f00d002e8eba6cd65090e530ec
-metadata: 40050000
-aem: 29fbe29e
-ble payload: 02011a03036ffd17166ffdf603d5f00d002e8eba6cd65090e530ec29fbe29e
-*/
-
-// checks if an rpi and aem matches a given temporary exposure key, and writes the metadata to an output if there is a match.
-bool tracer_verify(tracer_datapair datapair, tracer_tek tek, tracer_metadata * output_metadata) {
+/**
+ * @brief Checks if a scanned RPI and AEM pair matches a downloaded TEK.
+ * 
+ * @param datapair The input scanned datapair, which can derived from tracer_parse_ble_payload().
+ * @param tek The Temporary Exposure Key to test the datapair against.
+ * @param enin A pointer to a 32-bit unsigned integer which will be overwritten with the datapair's generation ENIntervalNumber in the case of a TEK match
+ * @param output_metadata A pointer to a metadata object which will be overwritten with the datapair's decrypted metadata in the case of a TEK match
+ * @return Whether or not the datapair was successfully decrypted
+ */
+bool tracer_verify(tracer_datapair datapair, tracer_tek tek, uint32_t * enin, tracer_metadata * output_metadata) {
     tracer_rpik rpik = tracer_derive_rpik(tek);
 
-    uint8_t * decrypted_rpik = (uint8_t *)decrypt_aes_block(rpik.value, sizeof(rpik.value), datapair.rpi.value, NULL);
+    uint8_t * decrypted_rpi = (uint8_t *)decrypt_aes_block(rpik.value, sizeof(rpik.value), datapair.rpi.value, NULL);
 
-    //print_hex_buffer(decrypted_rpik, sizeof(rpik.value));
-    //printf("\n");
+    bool valid = memcmp(decrypted_rpi, RPI_STRING, sizeof(RPI_STRING)) == 0;
 
-    bool valid = memcmp(decrypted_rpik, RPI_STRING, sizeof(RPI_STRING)) == 0;
-
-    if (valid && output_metadata) {
-        uint32_t enin = *(uint32_t*)(decrypted_rpik + AES128_BLOCK_SIZE - sizeof(uint32_t));
-        tracer_aemk aemk = tracer_derive_aemk(tek);
-        flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, datapair.rpi.value, datapair.aem.value, sizeof(datapair.aem.value), output_metadata->value);
+    if (valid) {
+        if (enin) *enin = *(uint32_t*)(decrypted_rpi + AES128_BLOCK_SIZE - sizeof(uint32_t));
+        if (output_metadata) {
+            tracer_aemk aemk = tracer_derive_aemk(tek);
+            flip_aes_block_ctr(aemk.value, AES128_KEY_SIZE, datapair.rpi.value, datapair.aem.value, sizeof(datapair.aem.value), output_metadata->value);
+        }
     }
 
-    free(decrypted_rpik);
+    free(decrypted_rpi);
 
     return valid;
 }
 
-// derives a rpi-aem pair given an epoch and tx power.
+/**
+ * @brief Derives a RPI-AEM pair given a unix epoch and tx power. This can be used to create bluetooth payloads.
+ * 
+ * @param epoch The UNIX epoch time, expressed as a 32-bit unsigned integer
+ * @param tx_power The transmitting power of the transmitter in dBm, expressed as an 8-bit signed integer
+ */
 tracer_datapair tracer_derive_datapair(uint32_t epoch, int8_t tx_power) {
     tracer_datapair out;
 
@@ -363,87 +432,5 @@ tracer_datapair tracer_derive_datapair(uint32_t epoch, int8_t tx_power) {
 
     return out;
 }
-
-// self-tests the tracer library.
-/*bool tracer_self_test(uint32_t epoch) {
-
-    printf("deriving keys... ");
-
-    tracer_tek * tek = tracer_derive_tek(epoch);
-
-    tracer_tek_array_head = 0;
-    
-    tracer_rpik rpik = tracer_derive_rpik(*tek);
-    tracer_aemk aemk = tracer_derive_aemk(*tek);
-
-    tracer_rpi rpi = tracer_derive_rpi(rpik, epoch);
-
-    tracer_metadata meta = tracer_derive_metadata(ble_adapter_get_adv_tx_power());
-    tracer_aem aem = tracer_derive_aem(aemk, rpi, meta);
-
-    tracer_ble_payload payload = tracer_derive_ble_payload(rpi, aem);
-
-    printf("DONE!\n\ttek: ");
-    print_hex_buffer(tek->value, sizeof(tek->value));
-    printf("\n\trpik: ");
-    print_hex_buffer(rpik.value, sizeof(rpik.value));
-    printf("\n\taemk: ");
-    print_hex_buffer(aemk.value, sizeof(aemk.value));
-    printf("\n\trpi: ");
-    print_hex_buffer(rpi.value, sizeof(rpi.value));
-    printf("\n\tmetadata: ");
-    print_hex_buffer(meta.value, sizeof(meta.value));
-    printf("\n\taem: ");
-    print_hex_buffer(aem.value, sizeof(aem.value));
-    printf("\n\tble payload: ");
-    print_hex_buffer(payload.value, sizeof(payload.value));
-    printf("\n");
-
-    tracer_datapair datapair;
-
-    printf("testing tracer lib parsing... ");
-    if (tracer_parse_ble_payload(payload, &datapair)) {
-        printf("OK!\n\tparsed rpi: ");
-        print_hex_buffer(datapair.rpi.value, sizeof(datapair.rpi.value));
-        printf("\n\tparsed aem: ");
-        print_hex_buffer(datapair.aem.value, sizeof(datapair.aem.value));
-        printf("\n\toriginal rpi: ");
-        print_hex_buffer(rpi.value, sizeof(rpi.value));
-        printf("\n\toriginal aem: ");
-        print_hex_buffer(aem.value, sizeof(aem.value));
-        printf("\n");
-    } else {
-        printf("FAIL!\n");
-        return false;
-    }
-
-    tracer_ble_payload random_payload;
-    random_payload.len = esp_random() % 31;
-    rng_gen(sizeof(random_payload.len), random_payload.value);
-
-    // no way in heck the parser should be able to parse a completely random payload...
-    printf("testing tracer lib parsing against random payload... ");
-    if (tracer_parse_ble_payload(random_payload, NULL)) {
-        printf("FAIL!\n\tpayload: ");
-        print_hex_buffer(random_payload.value, random_payload.len);
-        printf("\n");
-        return false;
-    } else printf("OK!\n");
-
-    tracer_metadata out_meta;
-    printf("testing tracer lib verification... ");
-    if (tracer_verify(rpi, aem, *tek, &out_meta)) {
-        printf("OK!\n\tdecrypted metadata: ");
-        print_hex_buffer(&out_meta, sizeof(out_meta.value));
-        printf("\n\toriginal metadata: ");
-        print_hex_buffer(&meta, sizeof(meta.value));
-        printf("\n");
-    } else {
-        printf("FAIL!\n");
-        return false;
-    }
-
-    return true;
-}*/
 
 #endif

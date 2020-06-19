@@ -1,0 +1,186 @@
+\hypertarget{namespaceserver}{}\doxysection{server Namespace Reference}
+\label{namespaceserver}\index{server@{server}}
+\doxysubsection*{Classes}
+\begin{DoxyCompactItemize}
+\item 
+class \mbox{\hyperlink{classserver_1_1CaseIDType}{Case\+I\+D\+Type}}
+\item 
+class \mbox{\hyperlink{classserver_1_1settings}{settings}}
+\item 
+class \mbox{\hyperlink{classserver_1_1TracerServerHandler}{Tracer\+Server\+Handler}}
+\end{DoxyCompactItemize}
+\doxysubsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+int \mbox{\hyperlink{namespaceserver_a11279fe4711ea8680aedf73cb080df2b}{get\+\_\+epoch}} ()
+\item 
+def \mbox{\hyperlink{namespaceserver_a3147f030e4c9959eabbde8732b1f5476}{derive\+\_\+enin}} (int epoch)
+\item 
+Tuple\mbox{[}int, str\mbox{]} \mbox{\hyperlink{namespaceserver_a4b1d20339f2504d60998a63e26c7bd68}{unpack\+\_\+tek}} (bytes tek)
+\item 
+bytes \mbox{\hyperlink{namespaceserver_a97e52f58f5220fb41bba8f8988439d15}{pack\+\_\+tek}} (int epoch, str tek)
+\item 
+def \mbox{\hyperlink{namespaceserver_af74f2dd239a001167ab93e2be2580897}{commit\+\_\+teks}} (Iterable\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} teks)
+\item 
+bytes \mbox{\hyperlink{namespaceserver_a7c7c1c63531111f57d2a373e2a94ccd7}{random\+\_\+bytes}} (int num)
+\item 
+Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} \mbox{\hyperlink{namespaceserver_a40c74082762587b1dce6357450e438d1}{get\+\_\+caseids}} ()
+\item 
+def \mbox{\hyperlink{namespaceserver_a41e8901cc8ed73c35b7aabc3d7c6dd31}{commit\+\_\+caseids}} (Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} caseids)
+\item 
+Iterable\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} \mbox{\hyperlink{namespaceserver_a9d4af2c27059e5b662d219276ff2107e}{iter\+\_\+caseids}} ()
+\item 
+Tuple\mbox{[}\mbox{\hyperlink{classserver_1_1CaseIDType}{Case\+I\+D\+Type}}, Tuple\mbox{[}int, str\mbox{]}\mbox{]} \mbox{\hyperlink{namespaceserver_a0cdcd8a46badfcef41666f637a412d0d}{burn\+\_\+caseid}} (str test\+\_\+caseid, Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} caseid\+\_\+array)
+\item 
+str \mbox{\hyperlink{namespaceserver_a44e4636d164dc5a964c92cbe9dd98424}{gen\+\_\+caseid}} (int epoch, Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} caseid\+\_\+array)
+\item 
+\mbox{\Hypertarget{namespaceserver_ae42deaa0465552920bffc777e95c9d57}\label{namespaceserver_ae42deaa0465552920bffc777e95c9d57}} 
+def {\bfseries shutdown} (cmd)
+\item 
+\mbox{\Hypertarget{namespaceserver_a741fbdba6e2a990675eccbbee3adee5c}\label{namespaceserver_a741fbdba6e2a990675eccbbee3adee5c}} 
+int {\bfseries reload\+\_\+caseid\+\_\+array} ()
+\item 
+\mbox{\Hypertarget{namespaceserver_ad5a60e644184deac57b8270d6bdb3ed8}\label{namespaceserver_ad5a60e644184deac57b8270d6bdb3ed8}} 
+def {\bfseries commit\+\_\+pending\+\_\+teks} (cmd)
+\end{DoxyCompactItemize}
+\doxysubsection*{Variables}
+\begin{DoxyCompactItemize}
+\item 
+\mbox{\Hypertarget{namespaceserver_adcc113011fa8dc3d86cd7c75323327d5}\label{namespaceserver_adcc113011fa8dc3d86cd7c75323327d5}} 
+string {\bfseries tek\+\_\+file\+\_\+path} = \char`\"{}tekfile.\+csv\char`\"{}
+\item 
+\mbox{\Hypertarget{namespaceserver_a753c35976ebd6c6b9284f540bb5fe452}\label{namespaceserver_a753c35976ebd6c6b9284f540bb5fe452}} 
+string {\bfseries caseid\+\_\+file\+\_\+path} = \char`\"{}caseid.\+csv\char`\"{}
+\item 
+\mbox{\Hypertarget{namespaceserver_aeff3c49c5432e1696af56c1d2c7e0a5b}\label{namespaceserver_aeff3c49c5432e1696af56c1d2c7e0a5b}} 
+Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} {\bfseries active\+\_\+caseid\+\_\+array} = \mbox{\hyperlink{namespaceserver_a40c74082762587b1dce6357450e438d1}{get\+\_\+caseids}}()
+\item 
+\mbox{\Hypertarget{namespaceserver_a83e0b9019a5f7a209ee07f86b5537ba3}\label{namespaceserver_a83e0b9019a5f7a209ee07f86b5537ba3}} 
+list {\bfseries pending\+\_\+teks} = \mbox{[}$\,$\mbox{]}
+\item 
+\mbox{\Hypertarget{namespaceserver_accd7f187cb485650f4effd4d44ecc93c}\label{namespaceserver_accd7f187cb485650f4effd4d44ecc93c}} 
+{\bfseries http\+\_\+server} = H\+T\+T\+P\+Server((\char`\"{}\char`\"{}, 80), \mbox{\hyperlink{classserver_1_1TracerServerHandler}{Tracer\+Server\+Handler}})
+\item 
+\mbox{\Hypertarget{namespaceserver_ae1c70ffabeff346268feab6b4d45844f}\label{namespaceserver_ae1c70ffabeff346268feab6b4d45844f}} 
+{\bfseries server\+\_\+thread} = threading.\+Thread(target=http\+\_\+server.\+serve\+\_\+forever, name=\char`\"{}tracer webserver\char`\"{})
+\item 
+dictionary {\bfseries command\+\_\+list}
+\item 
+\mbox{\Hypertarget{namespaceserver_a9679b123b0fa070cbc0b017a9dab553c}\label{namespaceserver_a9679b123b0fa070cbc0b017a9dab553c}} 
+{\bfseries userin} = input(\char`\"{}$>$ \char`\"{})
+\item 
+\mbox{\Hypertarget{namespaceserver_a302962f79396e4a548c07245561b7461}\label{namespaceserver_a302962f79396e4a548c07245561b7461}} 
+{\bfseries parsedcmd} = userin.\+split()
+\item 
+\mbox{\Hypertarget{namespaceserver_a1b9032bca5b1b0530ba852162a077d35}\label{namespaceserver_a1b9032bca5b1b0530ba852162a077d35}} 
+string {\bfseries command} = parsedcmd\mbox{[}0\mbox{]} if parsedcmd else \char`\"{}help\char`\"{}
+\end{DoxyCompactItemize}
+
+
+\doxysubsection{Detailed Description}
+\begin{DoxyVerb}@package keypair server
+A dead-simple keyserver implementation in python.
+\end{DoxyVerb}
+ 
+
+\doxysubsection{Function Documentation}
+\mbox{\Hypertarget{namespaceserver_a0cdcd8a46badfcef41666f637a412d0d}\label{namespaceserver_a0cdcd8a46badfcef41666f637a412d0d}} 
+\index{server@{server}!burn\_caseid@{burn\_caseid}}
+\index{burn\_caseid@{burn\_caseid}!server@{server}}
+\doxysubsubsection{\texorpdfstring{burn\_caseid()}{burn\_caseid()}}
+{\footnotesize\ttfamily  Tuple\mbox{[}\mbox{\hyperlink{classserver_1_1CaseIDType}{Case\+I\+D\+Type}}, Tuple\mbox{[}int, str\mbox{]}\mbox{]} server.\+burn\+\_\+caseid (\begin{DoxyParamCaption}\item[{str}]{test\+\_\+caseid,  }\item[{Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]}}]{caseid\+\_\+array }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}validates a caseid against a caseid array. if the caseid is valid, it will return a tuple containing the matching caseid.\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a41e8901cc8ed73c35b7aabc3d7c6dd31}\label{namespaceserver_a41e8901cc8ed73c35b7aabc3d7c6dd31}} 
+\index{server@{server}!commit\_caseids@{commit\_caseids}}
+\index{commit\_caseids@{commit\_caseids}!server@{server}}
+\doxysubsubsection{\texorpdfstring{commit\_caseids()}{commit\_caseids()}}
+{\footnotesize\ttfamily def server.\+commit\+\_\+caseids (\begin{DoxyParamCaption}\item[{Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]}}]{caseids }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}removes caseids that aren't in the active caseid array\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_af74f2dd239a001167ab93e2be2580897}\label{namespaceserver_af74f2dd239a001167ab93e2be2580897}} 
+\index{server@{server}!commit\_teks@{commit\_teks}}
+\index{commit\_teks@{commit\_teks}!server@{server}}
+\doxysubsubsection{\texorpdfstring{commit\_teks()}{commit\_teks()}}
+{\footnotesize\ttfamily def server.\+commit\+\_\+teks (\begin{DoxyParamCaption}\item[{Iterable\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]}}]{teks }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}appends an iterable of teks to the tekfile.\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a3147f030e4c9959eabbde8732b1f5476}\label{namespaceserver_a3147f030e4c9959eabbde8732b1f5476}} 
+\index{server@{server}!derive\_enin@{derive\_enin}}
+\index{derive\_enin@{derive\_enin}!server@{server}}
+\doxysubsubsection{\texorpdfstring{derive\_enin()}{derive\_enin()}}
+{\footnotesize\ttfamily def server.\+derive\+\_\+enin (\begin{DoxyParamCaption}\item[{int}]{epoch }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}gets an enin given an epoch\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a44e4636d164dc5a964c92cbe9dd98424}\label{namespaceserver_a44e4636d164dc5a964c92cbe9dd98424}} 
+\index{server@{server}!gen\_caseid@{gen\_caseid}}
+\index{gen\_caseid@{gen\_caseid}!server@{server}}
+\doxysubsubsection{\texorpdfstring{gen\_caseid()}{gen\_caseid()}}
+{\footnotesize\ttfamily  str server.\+gen\+\_\+caseid (\begin{DoxyParamCaption}\item[{int}]{epoch,  }\item[{Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]}}]{caseid\+\_\+array }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}randomly generates a 7-character case id and adds it to the caseid array\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a40c74082762587b1dce6357450e438d1}\label{namespaceserver_a40c74082762587b1dce6357450e438d1}} 
+\index{server@{server}!get\_caseids@{get\_caseids}}
+\index{get\_caseids@{get\_caseids}!server@{server}}
+\doxysubsubsection{\texorpdfstring{get\_caseids()}{get\_caseids()}}
+{\footnotesize\ttfamily  Set\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} server.\+get\+\_\+caseids (\begin{DoxyParamCaption}{ }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}returns a set of all caseids\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a11279fe4711ea8680aedf73cb080df2b}\label{namespaceserver_a11279fe4711ea8680aedf73cb080df2b}} 
+\index{server@{server}!get\_epoch@{get\_epoch}}
+\index{get\_epoch@{get\_epoch}!server@{server}}
+\doxysubsubsection{\texorpdfstring{get\_epoch()}{get\_epoch()}}
+{\footnotesize\ttfamily  int server.\+get\+\_\+epoch (\begin{DoxyParamCaption}{ }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}gets the unix epoch time\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a9d4af2c27059e5b662d219276ff2107e}\label{namespaceserver_a9d4af2c27059e5b662d219276ff2107e}} 
+\index{server@{server}!iter\_caseids@{iter\_caseids}}
+\index{iter\_caseids@{iter\_caseids}!server@{server}}
+\doxysubsubsection{\texorpdfstring{iter\_caseids()}{iter\_caseids()}}
+{\footnotesize\ttfamily  Iterable\mbox{[}Tuple\mbox{[}int, str\mbox{]}\mbox{]} server.\+iter\+\_\+caseids (\begin{DoxyParamCaption}{ }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}iterates over the caseid file\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a97e52f58f5220fb41bba8f8988439d15}\label{namespaceserver_a97e52f58f5220fb41bba8f8988439d15}} 
+\index{server@{server}!pack\_tek@{pack\_tek}}
+\index{pack\_tek@{pack\_tek}!server@{server}}
+\doxysubsubsection{\texorpdfstring{pack\_tek()}{pack\_tek()}}
+{\footnotesize\ttfamily  bytes server.\+pack\+\_\+tek (\begin{DoxyParamCaption}\item[{int}]{epoch,  }\item[{str}]{tek }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}turns a tek tuple into its binary representation\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a7c7c1c63531111f57d2a373e2a94ccd7}\label{namespaceserver_a7c7c1c63531111f57d2a373e2a94ccd7}} 
+\index{server@{server}!random\_bytes@{random\_bytes}}
+\index{random\_bytes@{random\_bytes}!server@{server}}
+\doxysubsubsection{\texorpdfstring{random\_bytes()}{random\_bytes()}}
+{\footnotesize\ttfamily  bytes server.\+random\+\_\+bytes (\begin{DoxyParamCaption}\item[{int}]{num }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}generates random bytes of length num\end{DoxyVerb}
+ \mbox{\Hypertarget{namespaceserver_a4b1d20339f2504d60998a63e26c7bd68}\label{namespaceserver_a4b1d20339f2504d60998a63e26c7bd68}} 
+\index{server@{server}!unpack\_tek@{unpack\_tek}}
+\index{unpack\_tek@{unpack\_tek}!server@{server}}
+\doxysubsubsection{\texorpdfstring{unpack\_tek()}{unpack\_tek()}}
+{\footnotesize\ttfamily  Tuple\mbox{[}int, str\mbox{]} server.\+unpack\+\_\+tek (\begin{DoxyParamCaption}\item[{bytes}]{tek }\end{DoxyParamCaption})}
+
+\begin{DoxyVerb}splits a datapair into an epoch and tek string. can be used for storage.\end{DoxyVerb}
+ 
+
+\doxysubsection{Variable Documentation}
+\mbox{\Hypertarget{namespaceserver_ada13cf4ef780d9bc4924fece1c0edee3}\label{namespaceserver_ada13cf4ef780d9bc4924fece1c0edee3}} 
+\index{server@{server}!command\_list@{command\_list}}
+\index{command\_list@{command\_list}!server@{server}}
+\doxysubsubsection{\texorpdfstring{command\_list}{command\_list}}
+{\footnotesize\ttfamily dictionary server.\+command\+\_\+list}
+
+{\bfseries Initial value\+:}
+\begin{DoxyCode}{0}
+\DoxyCodeLine{1 =  \{}
+\DoxyCodeLine{2     \textcolor{stringliteral}{"gen\_caseid"}:           \textcolor{keyword}{lambda} cmd: \textcolor{stringliteral}{"\(\backslash\)n"}.join(\textcolor{stringliteral}{"\%d: generated key \%s"} \% (i, gen\_caseid(get\_epoch(), active\_caseid\_array)) \textcolor{keywordflow}{for} i \textcolor{keywordflow}{in} range(int(cmd[1]) \textcolor{keywordflow}{if} cmd[1:] \textcolor{keywordflow}{else} 1)),}
+\DoxyCodeLine{3     \textcolor{stringliteral}{"list\_caseid"}:          \textcolor{keyword}{lambda} cmd: \textcolor{stringliteral}{"\(\backslash\)n"}.join(map(\textcolor{stringliteral}{"epoch: \%d\(\backslash\)tcaseid: \%s"}.\_\_mod\_\_, active\_caseid\_array)),}
+\DoxyCodeLine{4     \textcolor{stringliteral}{"get\_caseid"}:           \textcolor{keyword}{lambda} cmd: reload\_caseid\_array(),}
+\DoxyCodeLine{5     \textcolor{stringliteral}{"commit\_caseid"}:        \textcolor{keyword}{lambda} cmd: commit\_caseids(active\_caseid\_array),}
+\DoxyCodeLine{6     \textcolor{stringliteral}{"commit\_teks"}:          commit\_pending\_teks,}
+\DoxyCodeLine{7     \textcolor{stringliteral}{"list\_teks"}:            \textcolor{keyword}{lambda} cmd: \textcolor{stringliteral}{"\(\backslash\)n"}.join(map(\textcolor{stringliteral}{"epoch: \%d\(\backslash\)ttek: \%s"}.\_\_mod\_\_, pending\_teks)),}
+\DoxyCodeLine{8     \textcolor{stringliteral}{"help"}:                 \textcolor{keyword}{lambda} cmd: \textcolor{stringliteral}{"available commands:\(\backslash\)n\(\backslash\)t"}+\textcolor{stringliteral}{"\(\backslash\)n\(\backslash\)t"}.join(command\_list.keys()),}
+\DoxyCodeLine{9     \textcolor{stringliteral}{"exit"}:                 shutdown}
+\DoxyCodeLine{10 \}}
+
+\end{DoxyCode}

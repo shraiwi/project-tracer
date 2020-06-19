@@ -475,7 +475,7 @@ void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
         if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
             ESP_LOGI(TAG, "found tekfile!");
         } else {
-            uint32_t * decoded_enin = b64_decode(de->d_name);
+            uint32_t * decoded_enin = b64_decode(de->d_name, NULL);
             uint32_t file_enin = *decoded_enin;
             free(decoded_enin);
 
@@ -493,7 +493,7 @@ void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
                 tracer_datapair datapair;
                 while (fread(&datapair, sizeof(tracer_datapair), 1, scanfile)) {
                     for (size_t i = 0; i < tek_array_len; i++) {
-                        if (tracer_verify(datapair, tek_array[i], NULL)) {
+                        if (tracer_verify(datapair, tek_array[i], NULL, NULL)) {
                             ESP_LOGW(TAG, "tek match!");
                         }
                     }
@@ -599,7 +599,7 @@ void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
         if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
             ESP_LOGI(TAG, "found tekfile!");
         } else {
-            uint32_t * decoded_enin = b64_decode(de->d_name);
+            uint32_t * decoded_enin = b64_decode(de->d_name, NULL);
             uint32_t file_enin = *decoded_enin;
             free(decoded_enin);
 
@@ -617,7 +617,7 @@ void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
     closedir(root_dir);
 }
 
-// initializes confiuration if 
+// initializes configuration 
 void startup_config() {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -672,7 +672,7 @@ void app_main(void) {
 
     init_spiffs();          // initialize spiffs
 
-    startup_config();
+    startup_config();       // enter configuration if wifi credentials not found
 
     // initialize ble adapter
 

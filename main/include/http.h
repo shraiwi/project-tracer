@@ -21,14 +21,7 @@
 
 #define DATA_BLOCK_SIZE 64
 
-char * http_string_append(char * src_str, const char * str_b) {
-    src_str = realloc(src_str, strlen(src_str) + strlen(str_b) + 1);
-    if (src_str == NULL) ESP_LOGE(TAG, "realloc() error! no more avaiable memory in the given block!");
-    strcat(src_str, str_b);
-    return (src_str);
-}
-
-// ternimates an http header
+// terminates an http header
 void http_terminate_header(char ** src) {
     *src = realloc(*src, strlen(*src) + 3);
     strcat(*src, "\r\n");

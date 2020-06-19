@@ -1,31 +1,15 @@
-# Project Tracer
+![Project Tracer Logo](./media/logo.png)
 
-An Open Source, ESP32-based contact tracing beacon!
+Project Tracer is an open-source contact tracing implementation for microcontrollers. At its current stage, it is designed for the ESP32, a low-power microcontroller with WiFi and Bluetooth. However, the code is written to be portable and can easily be ported to almost any platform.
 
-## Intro
-
-Well, here we are again.
-
-This is an open-source contact tracing API designed from the ground-up based off of the Google x Apple standard (see it [**here**](https://www.apple.com/covid19/contacttracing)). It aims to provide a lower-cost option for contact tracing for those who do not have cellphones, or those whose cellphones don't support it. In the end, I plan on it being implemented into a device (keychain-sized) which could easily fit into someone's pocket.
-
-## Project Log
-
-### May 9th
-
-- Switched to the ESP-IDF instead of the Arduino IDE.
-
-- Coded basic BLE advertising framework
-
-### May 10th
-
-- Finished work on basic BLE Adapter (basic classes & record implementation)
-
-- Added some cryptographic functions (RNG, SHA256 hash)
-
-### May 11th
-
-- Added some more cryptographic functions, (HKDF, AES128 encryption)
-
-- Verified the functionality of the functions.
-
-
+## Features
+- **🔐 Completely privacy preserving**
+    > Unlike other methods of contact tracing that use machine vision or GPS, no data will ever leave the device that can be used to identify the user. All of the information used to notify others of potential exposures is randomly generated and encrypted.
+- **🔋 Long Battery Life**
+    > Project Tracer provides an extremely low-maintenance method of contact tracing, as opposed to phones. While a user's phone may run out of battery after less than a day, Project Tracer's projected power consumption can keep the device running for almost 5 days! In fact, the average power consumption is so low that the device can be charged by a single solar cell!
+- **👐 Simple Setup**
+    > The setup of a tracer device is extremely simple. Just tap a button, connect to the hotspot, and configure the device!
+- **📁 Header-only**
+    > The code responsible for the contact tracing API is completely header-only and does not have any external dependencies outside of the C standard library and mbedTLS!
+- **💲 Low Cost**
+    > While the BOM cost for a single card in individidual quantities is high (about $8), bulk pricing can bring the price down to something as low as $5 per card.

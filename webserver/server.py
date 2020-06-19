@@ -1,5 +1,4 @@
-# a dead-simple server implementation
-# this should NOT be used for production
+# A dead-simple keyserver implementation in python.
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import *
@@ -22,30 +21,30 @@ class settings():
     tek_life = 14           # how long a tek lasts (how many the server should expect)
     packed_tek_len = 20     # how long a packed tek is in bytes (4 bytes epoch, 16 bytes tek)
 
-# gets the unix epoch time
 def get_epoch() -> int:
+    """gets the unix epoch time"""
     return int(time.time())
 
-# gets an enin given an epoch
 def derive_enin(epoch : int):
+    """gets an enin given an epoch"""
     return epoch // (60 * 10)
 
-# splits a datapair into an epoch and tek string. can be used for storage.
 def unpack_tek(tek : bytes) -> Tuple[int, str]:
+    """splits a datapair into an epoch and tek string. can be used for storage."""
     return derive_enin(int.from_bytes(tek[:4], "little")), base64.b64encode(tek[4:settings.packed_tek_len]).decode("utf-8")
 
-# turns a tek into its binary representation
 def pack_tek(epoch : int, tek : str) -> bytes:
+    """turns a tek tuple into its binary representation"""
     return epoch.to_bytes(4, "little") + base64.b64decode(tek)
 
-# appends an iterable of teks to the tekfile.
 def commit_teks(teks : Iterable[Tuple[int, str]]):
+    """appends an iterable of teks to the tekfile."""
     global tek_file_path
     with open(tek_file_path, "a") as tek_file:
         tek_file.writelines(map("%d,%s\n".__mod__, teks))
 
-# generates random bytes given a random number
 def random_bytes(num : int) -> bytes:
+    """generates random bytes of length num"""
     return bytes(random.getrandbits(8) for _ in range(num))
 
 class CaseIDType(Enum):
@@ -53,26 +52,26 @@ class CaseIDType(Enum):
     VALID = 1
     TOO_OLD = 2
 
-# returns a set of all caseids
 def get_caseids() -> Set[Tuple[int, str]]:
+    """returns a set of all caseids"""
     return set(iter_caseids())
 
-# removes caseids that aren't in the active caseid array
 def commit_caseids(caseids : Set[Tuple[int, str]]):
+    """removes caseids that aren't in the active caseid array"""
     global caseid_file_path
     with open(caseid_file_path, "w") as caseid_file:
         caseid_file.writelines(map("%d,%s\n".__mod__, caseids))
 
-# iterates over the caseid file
 def iter_caseids() -> Iterable[Tuple[int, str]]:
+    """iterates over the caseid file"""
     global caseid_file_path
     caseid_file = open(caseid_file_path, "r")
     for line in caseid_file:
         row = line.split(",")
         yield (int(row[0]), row[1].rstrip())
 
-# validates a caseid against a caseid array. if the caseid is valid, it will return a tuple containing the matching caseid.
 def burn_caseid(test_caseid: str, caseid_array: Set[Tuple[int, str]]) -> Tuple[CaseIDType, Tuple[int, str]]:
+    """validates a caseid against a caseid array. if the caseid is valid, it will return a tuple containing the matching caseid."""
     min_age = get_epoch() - settings.caseid_purge_age * 24 * 60 * 60
     for epoch, caseid in caseid_array:
         if caseid.casefold() == test_caseid.casefold():
@@ -82,25 +81,26 @@ def burn_caseid(test_caseid: str, caseid_array: Set[Tuple[int, str]]) -> Tuple[C
                 return CaseIDType.TOO_OLD, (epoch, caseid)
     return CaseIDType.NOT_FOUND, None
 
-# randomly generates a 7-character case id and adds it to the caseid array
 def gen_caseid(epoch: int, caseid_array: Set[Tuple[int, str]]) -> str:
+    """randomly generates a 7-character case id and adds it to the caseid array"""
     data = base64.b32encode(secrets.token_bytes(4)).decode("utf-8")[:7]
     caseid_array.add((epoch, data))
     return data
 
 class TracerServerHandler(BaseHTTPRequestHandler):
-    # sends a response code and a dictionary of headers
     def send_headers(self, code : int = 200, headers : dict = { "Content-Type" : "text/html" }) -> None:
+        """sends a response code and a dictionary of headers"""
         self.send_response(code)
         for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
 
-    # gets the query string as a dictionary
     def get_query(self, default : dict = {}) -> dict:
+        """gets the query string as a dictionary"""
         return dict([*default.items()] + [*urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, False).items()])
 
     def do_GET(self):
+        """returns all of the valid binary TEKs"""
         global tek_file_path
         self.send_headers()
         query = self.get_query({ 
@@ -117,6 +117,7 @@ class TracerServerHandler(BaseHTTPRequestHandler):
                     self.wfile.write(pack_tek(epoch, row[1]))
 
     def do_POST(self):
+        """accepts a body consisting of a CaseID and 14 binary TEKs and saves them to a pending TEK array if the CaseID is valid."""
         global active_caseid_array, pending_teks
 
         self.send_headers()
