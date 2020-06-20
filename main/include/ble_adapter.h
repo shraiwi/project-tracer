@@ -36,8 +36,9 @@ static esp_ble_scan_params_t ble_adapter_scan_params = {
     .scan_type              = BLE_SCAN_TYPE_PASSIVE,
     .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
     .scan_filter_policy     = BLE_SCAN_FILTER_ALLOW_ALL,
-    .scan_interval          = 0x10,
-    .scan_window            = 0x10
+    .scan_interval          = 0x01e0,
+    .scan_window            = 0x01e0,
+    .scan_duplicate         = BLE_SCAN_DUPLICATE_ENABLE,
 };
 
 static uint8_t ble_adapter_adv_data[ESP_BLE_ADV_DATA_LEN_MAX];

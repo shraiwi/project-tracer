@@ -19,7 +19,7 @@
 #include "time.h"
 #include "limits.h"
 
-#include "passwords.h"      // this file is in .gitignore for me. you probably want to create your own passwords.h and input your own data.
+//#include "passwords.h"      // this file is in .gitignore for me. you probably want to create your own passwords.h and input your own data.
 #include "wifi_adapter.h"
 #include "ble_adapter.h"
 #include "storage.h"
@@ -35,6 +35,9 @@
 #define LED_PIN             2
 #define PHOTOCELL_PIN       34
 #define TOUCH_PIN           33
+
+#define CONFIG_SUBMIT_FLAG  BIT(0)
+#define CONFIG_WIFI_FLAG    BIT(1)
 
 #define SPIFFS_ROOT         "/spiffs"
 #define TEKFILE_NAME        "tekfile"
@@ -129,9 +132,32 @@ void scan_for_peers(uint32_t epoch, uint32_t ms) {
 
 // saves the teks to spiffs.
 void save_teks() {
-    FILE * tek_file = fopen(SPIFFS_ROOT "/" TEKFILE_NAME, "w+");
-    fwrite(tracer_tek_array, 1, sizeof(tracer_tek_array), tek_file);
-    fclose(tek_file);
+    FILE * tek_file = fopen(SPIFFS_ROOT "/" TEKFILE_NAME, "w");
+    if (tek_file) {
+        ESP_LOGI(TAG, "writing tek array to tekfile.");
+        fwrite(tracer_tek_array, 1, sizeof(tracer_tek_array), tek_file);
+        fclose(tek_file);
+    } else {
+        ESP_LOGE(TAG, "error opening tekfile!");
+    }
+}
+
+void load_teks() {
+    FILE * tek_file = fopen(SPIFFS_ROOT "/" TEKFILE_NAME, "r");
+    if (tek_file) {
+        fread(tracer_tek_array, 1, sizeof(tracer_tek_array), tek_file);
+        uint32_t newest = 0;
+        for (size_t i = 0; i < TRACER_TEK_STORE_PERIOD; i++) {
+            if (tracer_tek_array[i].epoch > newest) {
+                newest = tracer_tek_array[i].epoch;
+                tracer_tek_array_head = i;
+            }
+        }
+        ESP_LOGI(TAG, "found tekfile, set head to %d.", tracer_tek_array_head);
+        fclose(tek_file);
+    } else {
+        ESP_LOGE(TAG, "error opening tekfile!");
+    }
 }
 
 static void touch_isr(void * arg) {
@@ -245,6 +271,7 @@ esp_err_t config_get_wifi_status_handler(httpd_req_t * req) {
 
     if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) httpd_resp_sendstr(req, "ok");
     else if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) httpd_resp_sendstr(req, "fail");
+    else if (wifi_adapter_has_saved_credentials()) httpd_resp_sendstr(req, "saved");
     else httpd_resp_sendstr(req, "disconnected");
 
     return ESP_OK;
@@ -293,7 +320,7 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
 
     ESP_LOGI(TAG, "recieved POST with ssid: %s, pwd: %d chars", ssid, strlen(pwd));
 
-    wifi_adapter_connect(ssid, strlen(pwd) > 8 ? pwd : NULL);
+    wifi_adapter_connect(ssid, strlen(pwd) > 0 ? pwd : NULL);
 
     while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -308,8 +335,6 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
         while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_HAS_IP)) {
             vTaskDelay(100 / portTICK_PERIOD_MS);
         }
-        timesync_sync();
-        ESP_LOGI(TAG, "time synced!");
     }
 
     return ESP_OK;
@@ -318,6 +343,8 @@ esp_err_t config_post_wifi_data_handler(httpd_req_t * req) {
 
 esp_err_t config_get_flash_state(httpd_req_t * req) {
     size_t total, used;
+    ESP_LOGI(TAG, "getting flash usage...");
+
     ESP_ERROR_CHECK(esp_spiffs_info(NULL, &total, &used));
 
     char datastring[64] = { 0 };
@@ -329,20 +356,14 @@ esp_err_t config_get_flash_state(httpd_req_t * req) {
 
 void config_submit_keys_http_cb(char * data, size_t len, void * user_dat) {
 
-    //uint8_t * flags = (uint8_t *)user_dat;
-
     ESP_LOGI(TAG, "got response %s.", data);
-
-    //if (strncmp(data, "ok", sizeof("ok")-1) == 0) SET_FLAG(*flags, BIT(0));
-
-    //SET_FLAG(*flags, BIT(1));
 
     return;
 }
 
 esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
 
-    if (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) {
+    if (!wifi_adapter_has_saved_credentials()) {
         httpd_resp_sendstr(req, "fail");
         return ESP_FAIL;
     }
@@ -376,13 +397,14 @@ esp_err_t config_get_submit_positive_diagnosis_handler(httpd_req_t * req) {
 
     httpd_resp_sendstr(req, "ok");
 
-    submit_ctx->valid = true;
+    submit_ctx->valid = data_head > 0;
 
     return ESP_OK;
 }
 
-// boots up the configuration menu for time seconds. if time is 0, the configuration menu will be open until the wifi is connected or a positive id post is requested. either
-void enter_config(uint32_t time) {
+// enters configuration for a certain amount of time
+// flags can be used to specify when to break out of configuration prematurely (on WiFi connect or submit request)
+void enter_config(uint32_t time, uint8_t flags) {
 
     struct config_ctx {
         bool valid;
@@ -390,7 +412,7 @@ void enter_config(uint32_t time) {
     } submit_ctx;
 
     submit_ctx.data_buf = NULL;
-    submit_ctx.valid = 0;
+    submit_ctx.valid = false;
 
     wifi_adapter_init(WIFI_ADAPTER_DUAL);
     wifi_adapter_set_netif(WIFI_ADAPTER_AP);
@@ -400,7 +422,7 @@ void enter_config(uint32_t time) {
     const char ssid_alphabet[] = "abcdefghijklmnopqrstuvwxyz";
 
     for (int i = 0; i < 5; i++) {
-        ssid_name[ssid_name_head++] = ssid_alphabet[rand() % strlen(ssid_alphabet)];
+        ssid_name[ssid_name_head++] = ssid_alphabet[esp_random() % strlen(ssid_alphabet)];
     }
 
     wifi_adapter_begin_softap(ssid_name, NULL);
@@ -414,14 +436,25 @@ void enter_config(uint32_t time) {
     http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, &submit_ctx);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
-    for (int wait_time = 0; wait_time < time; wait_time += (time > 0)) {
-        if (submit_ctx.valid || GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) break;
-        vTaskDelay(1000L / portTICK_PERIOD_MS);
+    uint8_t state_flags = 0;
+
+    for (size_t wait_time = 0; wait_time < time; wait_time++) {
+        state_flags |= (bool)(submit_ctx.valid) << 0;
+        state_flags |= (bool)(GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) << 1;
+
+        if (state_flags & flags) break;
+
+        gpio_set_level(LED_PIN, 1);
+        vTaskDelay(500L / portTICK_PERIOD_MS);
+        gpio_set_level(LED_PIN, 0);
+        vTaskDelay(500L / portTICK_PERIOD_MS);
     }
+
+    vTaskDelay(1000L / portTICK_PERIOD_MS);
 
     http_server_stop();
 
-    wifi_adapter_disconnect();
+    if (GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG)) wifi_adapter_disconnect();
     wifi_adapter_stop();
     wifi_adapter_deinit();
 
@@ -469,13 +502,13 @@ void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
     struct dirent * de;
 
     tracer_tek stream_tek;
-    streamop_token tek_token = streamop_create_chunk_token(&stream_tek, sizeof(tracer_tek));
+    //streamop_token tek_token = streamop_create_chunk_token(&stream_tek, sizeof(tracer_tek));
 
     while ((de = readdir(root_dir)) != NULL) {
         if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
             ESP_LOGI(TAG, "found tekfile!");
         } else {
-            uint32_t * decoded_enin = b64_decode(de->d_name, NULL);
+            uint32_t * decoded_enin = (uint32_t *)b64_decode(de->d_name, NULL);
             uint32_t file_enin = *decoded_enin;
             free(decoded_enin);
 
@@ -543,7 +576,13 @@ void validate_tek_http_stream(char * data, size_t data_len, void * user_dat) {
 
 void check_teks() {
     wifi_adapter_init(WIFI_ADAPTER_STA);
-    wifi_adapter_connect(WIFI_SSID, WIFI_PASSWORD);
+
+    if (!wifi_adapter_has_saved_credentials()) {
+        ESP_LOGW(TAG, "no wifi credentials saved, cancelling download...");
+        return;
+    }
+
+    wifi_adapter_connect(NULL, NULL);
 
     while (!GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECTED_FLAG) && !GET_FLAG(wifi_adapter_flags, WIFI_ADAPTER_CONNECT_FAIL_FLAG)) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -581,6 +620,8 @@ void check_teks() {
         tek_stream_ctx.body_valid = false;
 
         http_req_ip("GET", TRACER_KEYSERVER, TRACER_KEYSERVER"/", NULL, 0, validate_tek_http_stream, &tek_stream_ctx);
+
+        wifi_adapter_disconnect();
     }
 
     wifi_adapter_stop();
@@ -599,7 +640,7 @@ void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
         if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
             ESP_LOGI(TAG, "found tekfile!");
         } else {
-            uint32_t * decoded_enin = b64_decode(de->d_name, NULL);
+            uint32_t * decoded_enin = (uint32_t *)b64_decode(de->d_name, NULL);
             uint32_t file_enin = *decoded_enin;
             free(decoded_enin);
 
@@ -619,17 +660,14 @@ void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
 
 // initializes configuration 
 void startup_config() {
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
+    
+    wifi_adapter_init(WIFI_ADAPTER_STA);
     bool has_persistence = wifi_adapter_has_saved_credentials();
-
-    ESP_ERROR_CHECK(esp_wifi_stop());
-    ESP_ERROR_CHECK(esp_wifi_deinit());
+    wifi_adapter_deinit();
 
     if (!has_persistence) {
         ESP_LOGI(TAG, "wifi credentials not found, entering configuration.");
-        enter_config(0);
+        enter_config(-1, CONFIG_WIFI_FLAG); // -1 makes for an underflow 2^32 - 1 seconds (basically forever)
     } else {
         ESP_LOGI(TAG, "persistent credentials found, syncing system time.");
         wifi_adapter_init(WIFI_ADAPTER_STA);
@@ -672,6 +710,8 @@ void app_main(void) {
 
     init_spiffs();          // initialize spiffs
 
+    load_teks();
+
     startup_config();       // enter configuration if wifi credentials not found
 
     // initialize ble adapter
@@ -711,7 +751,7 @@ void app_main(void) {
 
             ESP_LOGI(TAG, "entering configuration mode for 300 seconds...");
 
-            enter_config(300);
+            enter_config(300, CONFIG_SUBMIT_FLAG);
 
             touch_wake = false;
         }
@@ -723,16 +763,21 @@ void app_main(void) {
         if (tracer_detect_tek_rollover(tek.epoch, epoch)) {
             ESP_LOGI(TAG, "tek rollover!");
             tek = *tracer_derive_tek(epoch);
+            save_teks();
             check_teks();
         } 
 
         if (tracer_detect_enin_rollover(last_datapair_epoch, epoch)) {
             ESP_LOGI(TAG, "enin rollover!");
             pair = tracer_derive_datapair(epoch, ble_adapter_get_adv_tx_power());
+            //ESP_LOGI(TAG, "derived datapair, generating payload.");
             payload = tracer_derive_ble_payload(pair);
+            //ESP_LOGI(TAG, "setting raw data.");
             ble_adapter_set_raw(payload.value, payload.len);
             last_datapair_epoch = epoch;
         }
+
+        ble_adapter_start_advertising();                            // start advertising
 
         if (tracer_detect_scanin_rollover(last_scan_epoch, epoch)) {
             ESP_LOGI(TAG, "scanin rollover!");
@@ -741,8 +786,7 @@ void app_main(void) {
             last_scan_epoch = epoch;
         }
 
-        ble_adapter_start_advertising();                            // start advertising
-        vTaskDelay(10 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)
+        vTaskDelay(20 / portTICK_PERIOD_MS);                        // wait for 10ms (1 RTOS tick)
         ble_adapter_stop_advertising();                             // stop advertising
         gpio_set_level(LED_PIN, 0);                                 // turn off builtin led
         ESP_ERROR_CHECK(esp_sleep_enable_timer_wakeup(270*1000));   // enable wakeup in 0.2 second

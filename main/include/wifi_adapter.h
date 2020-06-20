@@ -152,6 +152,13 @@ void wifi_adapter_deinit() {
     wifi_adapter_flags = 0;
 }
 
+// gets the number of connected devices in AP mode.
+size_t wifi_adapter_get_num_connected() {
+    wifi_sta_list_t sta_list;
+    ESP_ERROR_CHECK(esp_wifi_ap_get_sta_list(&sta_list));
+    return sta_list.num;
+}
+
 // checks if the wifi adapter has credentials saved in nvs
 bool wifi_adapter_has_saved_credentials() {
     wifi_config_t cfg = { 0 };
@@ -229,7 +236,7 @@ void wifi_adapter_stop_scan() {
 wifi_ap_record_t * wifi_adapter_get_scan(uint16_t * len) {
     ESP_LOGI(TAG, "getting scan data...");
 
-    //ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(len));
+    //ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(len)); 
 
     wifi_ap_record_t * out = calloc((*len + 1) * sizeof(wifi_ap_record_t), 1);
 

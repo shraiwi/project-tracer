@@ -2,6 +2,7 @@
 
 <html>
     <head>
+        <meta name="viewport" content="width=device-width, user-scalable=no">
         <style>
             *, *::before, *::after {
                 transition-duration: 250ms;
@@ -10,7 +11,9 @@
 
             body {
                 margin: auto;
-                width: max(500px, 50vw);
+                width: min(500px, 100%);
+                padding: 20px;
+                box-sizing: border-box;
             }
 
             table { 
@@ -25,7 +28,8 @@
             }
 
             .collapsible {
-                margin: 10px;
+                margin-bottom: 10px;
+                margin-top: 10px;
                 padding: 10px;
                 border-radius: 10px;
                 box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
@@ -54,7 +58,7 @@
                 height: 0;
             }
             .collapsible>input:checked ~ div { 
-                margin: 5px 20px 2px 20px;
+                margin: 5px 10px 2px 10px;
                 opacity: 1;
                 height: var(--max-height);
             }
@@ -74,6 +78,11 @@
             .wifi-ok::after {
                 font-weight: bolder;
                 content: "Connected";
+                color: green;
+            }
+            .wifi-saved::after {
+                font-weight: bolder;
+                content: "Credentials Saved";
                 color: green;
             }
             .wifi-fail::after {
@@ -156,6 +165,7 @@
                 </form>
             </div>
         </div>
+        <p>The hotspot will automatically turn off after 5 minutes.</p>
         <script>
             const settings = {
                 table: document.getElementById("wifi"),
@@ -336,7 +346,7 @@
 
                 await getWifiStatus();
 
-                if (state.wifi !== "ok") {
+                if (!["ok", "saved"].includes(state.wifi)) {
                     alert("Please connect to WiFi!");
                     return;
                 }
@@ -365,13 +375,10 @@
             settings.flashButton.addEventListener("click", onFlashStatus);
 
             document.addEventListener("click", updateCollapsibles);
-            //window.onerror = function(error) {
-            //    console.log(error);
-            //    setTimeout(function() { showError(error); }, 100);
-            //};
+
+            //getWifiStatus();
 
             updateCollapsibles();
-            //settings.scanButton.click();
         </script>
     </body>
 </html>

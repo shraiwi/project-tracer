@@ -3,6 +3,8 @@
 #ifndef _TRACER_H_
 #define _TRACER_H_
 
+#define TAG "tracer_api"
+
 /**
  * @file
  * @brief Contains all of the user-facing interactions in the Tracer API.
@@ -119,7 +121,7 @@ tracer_keypair tracer_current_keypair;
 void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t type, void * data, size_t data_len) {
     ble_payload->value[ble_payload->len++] = data_len + 1;
     ble_payload->value[ble_payload->len++] = type;
-    memcpy(ble_payload->value + ble_payload->len, data, data_len);
+    memcpy(&ble_payload->value[ble_payload->len], data, data_len);
     ble_payload->len += data_len;
 }
 
@@ -432,5 +434,7 @@ tracer_datapair tracer_derive_datapair(uint32_t epoch, int8_t tx_power) {
 
     return out;
 }
+
+#undef TAG
 
 #endif
