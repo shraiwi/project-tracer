@@ -190,12 +190,18 @@ Functions</h2></td></tr>
 <tr class="memitem:a3742f10381020abbd637d4f5ddec3891"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a3742f10381020abbd637d4f5ddec3891">tracer_ble_payload_add_record</a> (<a class="el" href="structtracer__ble__payload.html">tracer_ble_payload</a> *ble_payload, uint8_t type, void *data, size_t data_len)</td></tr>
 <tr class="memdesc:a3742f10381020abbd637d4f5ddec3891"><td class="mdescLeft">&#160;</td><td class="mdescRight">Adds a record to the BLE payload.  <a href="tracer_8h.html#a3742f10381020abbd637d4f5ddec3891">More...</a><br /></td></tr>
 <tr class="separator:a3742f10381020abbd637d4f5ddec3891"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a4a35291fe76864b6ceb28dc91530cafd"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a4a35291fe76864b6ceb28dc91530cafd">tracer_en_interval_number</a> (uint32_t epoch)</td></tr>
-<tr class="memdesc:a4a35291fe76864b6ceb28dc91530cafd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the ENIntervalNumber given an epoch.  <a href="tracer_8h.html#a4a35291fe76864b6ceb28dc91530cafd">More...</a><br /></td></tr>
-<tr class="separator:a4a35291fe76864b6ceb28dc91530cafd"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:acbcdbab25c515d737b4db4f198443b15"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#acbcdbab25c515d737b4db4f198443b15">tracer_scan_interval_number</a> (uint32_t epoch)</td></tr>
-<tr class="memdesc:acbcdbab25c515d737b4db4f198443b15"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the Scan Interval Number given an epoch.  <a href="tracer_8h.html#acbcdbab25c515d737b4db4f198443b15">More...</a><br /></td></tr>
-<tr class="separator:acbcdbab25c515d737b4db4f198443b15"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a89a922cad747f39dbb56b96599f6b528"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a89a922cad747f39dbb56b96599f6b528">tracer_epoch2enin</a> (uint32_t epoch)</td></tr>
+<tr class="memdesc:a89a922cad747f39dbb56b96599f6b528"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the ENIntervalNumber given an epoch.  <a href="tracer_8h.html#a89a922cad747f39dbb56b96599f6b528">More...</a><br /></td></tr>
+<tr class="separator:a89a922cad747f39dbb56b96599f6b528"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a239372a6b9c117eab1290b7be51e87fb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a239372a6b9c117eab1290b7be51e87fb">tracer_enin2epoch</a> (uint32_t enin)</td></tr>
+<tr class="memdesc:a239372a6b9c117eab1290b7be51e87fb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the UNIX epoch time given an ENIntervalNumber.  <a href="tracer_8h.html#a239372a6b9c117eab1290b7be51e87fb">More...</a><br /></td></tr>
+<tr class="separator:a239372a6b9c117eab1290b7be51e87fb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acf89c3ca1e05bbdfafc56077c01ddd9a"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#acf89c3ca1e05bbdfafc56077c01ddd9a">tracer_epoch2scanin</a> (uint32_t epoch)</td></tr>
+<tr class="memdesc:acf89c3ca1e05bbdfafc56077c01ddd9a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the Scan Interval Number given an epoch.  <a href="tracer_8h.html#acf89c3ca1e05bbdfafc56077c01ddd9a">More...</a><br /></td></tr>
+<tr class="separator:acf89c3ca1e05bbdfafc56077c01ddd9a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a911debfffad6819c28c3347678604129"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a911debfffad6819c28c3347678604129">tracer_scanin2epoch</a> (uint32_t scanin)</td></tr>
+<tr class="memdesc:a911debfffad6819c28c3347678604129"><td class="mdescLeft">&#160;</td><td class="mdescRight">Gets the epoch given a Scan Interval Number.  <a href="tracer_8h.html#a911debfffad6819c28c3347678604129">More...</a><br /></td></tr>
+<tr class="separator:a911debfffad6819c28c3347678604129"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a513d72ec8ee52ad99d5f5d388ae75b70"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structtracer__rpik.html">tracer_rpik</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="tracer_8h.html#a513d72ec8ee52ad99d5f5d388ae75b70">tracer_derive_rpik</a> (<a class="el" href="structtracer__tek.html">tracer_tek</a> tek)</td></tr>
 <tr class="memdesc:a513d72ec8ee52ad99d5f5d388ae75b70"><td class="mdescLeft">&#160;</td><td class="mdescRight">Derives a new Rolling Proximity Identifier Key from a Temporary Exposure Key.  <a href="tracer_8h.html#a513d72ec8ee52ad99d5f5d388ae75b70">More...</a><br /></td></tr>
 <tr class="separator:a513d72ec8ee52ad99d5f5d388ae75b70"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -745,14 +751,41 @@ size_t&#160;</td><td class="memItemRight" valign="bottom"><b>tracer_tek_array_he
 
 </div>
 </div>
-<a id="a4a35291fe76864b6ceb28dc91530cafd"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4a35291fe76864b6ceb28dc91530cafd">&#9670;&nbsp;</a></span>tracer_en_interval_number()</h2>
+<a id="a239372a6b9c117eab1290b7be51e87fb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a239372a6b9c117eab1290b7be51e87fb">&#9670;&nbsp;</a></span>tracer_enin2epoch()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t tracer_en_interval_number </td>
+          <td class="memname">uint32_t tracer_enin2epoch </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>enin</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Gets the UNIX epoch time given an ENIntervalNumber. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">enin</td><td>The ENIntervalNumber </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The UNIX epoch time, expressed as a 32-bit unsigned integer </dd></dl>
+
+</div>
+</div>
+<a id="a89a922cad747f39dbb56b96599f6b528"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a89a922cad747f39dbb56b96599f6b528">&#9670;&nbsp;</a></span>tracer_epoch2enin()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t tracer_epoch2enin </td>
           <td>(</td>
           <td class="paramtype">uint32_t&#160;</td>
           <td class="paramname"><em>epoch</em></td><td>)</td>
@@ -764,11 +797,38 @@ size_t&#160;</td><td class="memItemRight" valign="bottom"><b>tracer_tek_array_he
 <p>Gets the ENIntervalNumber given an epoch. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">epoch</td><td>The current UNIX epoch time </td></tr>
+    <tr><td class="paramname">epoch</td><td>The UNIX epoch time </td></tr>
   </table>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The ENIntervalNumber, expressed as a 32-bit unsigned integer </dd></dl>
+
+</div>
+</div>
+<a id="acf89c3ca1e05bbdfafc56077c01ddd9a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acf89c3ca1e05bbdfafc56077c01ddd9a">&#9670;&nbsp;</a></span>tracer_epoch2scanin()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t tracer_epoch2scanin </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>epoch</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Gets the Scan Interval Number given an epoch. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">epoch</td><td>The UNIX epoch time </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The Scan Interval Number, expressed as a 32-bit unsigned integer </dd></dl>
 
 </div>
 </div>
@@ -830,30 +890,30 @@ size_t&#160;</td><td class="memItemRight" valign="bottom"><b>tracer_tek_array_he
 
 </div>
 </div>
-<a id="acbcdbab25c515d737b4db4f198443b15"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acbcdbab25c515d737b4db4f198443b15">&#9670;&nbsp;</a></span>tracer_scan_interval_number()</h2>
+<a id="a911debfffad6819c28c3347678604129"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a911debfffad6819c28c3347678604129">&#9670;&nbsp;</a></span>tracer_scanin2epoch()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t tracer_scan_interval_number </td>
+          <td class="memname">uint32_t tracer_scanin2epoch </td>
           <td>(</td>
           <td class="paramtype">uint32_t&#160;</td>
-          <td class="paramname"><em>epoch</em></td><td>)</td>
+          <td class="paramname"><em>scanin</em></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Gets the Scan Interval Number given an epoch. </p>
+<p>Gets the epoch given a Scan Interval Number. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">epoch</td><td>The current UNIX epoch time </td></tr>
+    <tr><td class="paramname">scanin</td><td>The current Scan Interval Number </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>The Scan Interval Number, expressed as a 32-bit unsigned integer </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>The UNIX epoch time, expressed as a 32-bit unsigned integer </dd></dl>
 
 </div>
 </div>

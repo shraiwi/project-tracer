@@ -57,7 +57,7 @@ def get_caseids() -> Set[Tuple[int, str]]:
     return set(iter_caseids())
 
 def commit_caseids(caseids : Set[Tuple[int, str]]):
-    """removes caseids that aren't in the active caseid array"""
+    """updates caseids"""
     global caseid_file_path
     with open(caseid_file_path, "w") as caseid_file:
         caseid_file.writelines(map("%d,%s\n".__mod__, caseids))
@@ -156,9 +156,23 @@ server_thread = threading.Thread(target=http_server.serve_forever, name="tracer 
 server_thread.setDaemon(True)
 server_thread.start()
 
+def reload_changes():
+    global pending_teks, active_caseid_array, sync_thread
+    commit_teks(pending_teks)
+    pending_teks.clear()
+    commit_caseids(active_caseid_array)
+    sync_thread = threading.Timer(sync_thread.interval, sync_thread.function)
+    sync_thread.setDaemon(True)
+    sync_thread.start()
+
+sync_thread = threading.Timer(5.0, reload_changes)
+sync_thread.setDaemon(True)
+sync_thread.start()
+
 def shutdown(cmd):
-    global server_thread
+    global server_thread, sync_thread
     server_thread._stop()
+    sync_thread.cancel()
     raise SystemExit
 
 def reload_caseid_array() -> int:

@@ -128,21 +128,41 @@ void tracer_ble_payload_add_record(tracer_ble_payload * ble_payload, uint8_t typ
 /**
  * @brief Gets the ENIntervalNumber given an epoch
  * 
- * @param epoch The current UNIX epoch time
+ * @param epoch The UNIX epoch time
  * @return The ENIntervalNumber, expressed as a 32-bit unsigned integer
  */
-uint32_t tracer_en_interval_number(uint32_t epoch) {
+uint32_t tracer_epoch2enin(uint32_t epoch) {
     return (uint32_t)(epoch / (60 * TRACER_ENIN_INTERVAL));
+}
+
+/**
+ * @brief Gets the UNIX epoch time given an ENIntervalNumber
+ * 
+ * @param enin The ENIntervalNumber
+ * @return The UNIX epoch time, expressed as a 32-bit unsigned integer
+ */
+uint32_t tracer_enin2epoch(uint32_t enin) {
+    return (uint32_t)(enin * (60 * TRACER_ENIN_INTERVAL));
 }
 
 /**
  * @brief Gets the Scan Interval Number given an epoch
  * 
- * @param epoch The current UNIX epoch time
+ * @param epoch The UNIX epoch time
  * @return The Scan Interval Number, expressed as a 32-bit unsigned integer
  */
-uint32_t tracer_scan_interval_number(uint32_t epoch) {
+uint32_t tracer_epoch2scanin(uint32_t epoch) {
     return (uint32_t)(epoch / (60 * TRACER_SCAN_INTERVAL));
+}
+
+/**
+ * @brief Gets the epoch given a Scan Interval Number 
+ * 
+ * @param scanin The current Scan Interval Number
+ * @return The UNIX epoch time, expressed as a 32-bit unsigned integer
+ */
+uint32_t tracer_scanin2epoch(uint32_t scanin) {
+    return (uint32_t)(scanin * (60 * TRACER_SCAN_INTERVAL));
 }
 
 /**
@@ -177,7 +197,7 @@ tracer_rpi tracer_derive_rpi(tracer_rpik rpik, uint32_t epoch) {
 
     uint8_t padded_data[AES128_BLOCK_SIZE] = RPI_STRING;                             // just a note, the rest of the char array will be initialized to 0
 
-    uint32_t enin = tracer_en_interval_number(epoch);                                // get the enintervalnumber
+    uint32_t enin = tracer_epoch2enin(epoch);                                // get the enintervalnumber
 
     memcpy(&padded_data[sizeof(padded_data) - sizeof(enin)], &enin, sizeof(enin));   // set the last 4 bytes of the padded date to the epoch
 
@@ -363,7 +383,7 @@ bool tracer_parse_ble_payload(tracer_ble_payload payload, tracer_datapair * data
  * @return Whether or not there should be a new datapair derivation
  */
 bool tracer_detect_enin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
-    return (tracer_en_interval_number(last_epoch) < tracer_en_interval_number(current_epoch));
+    return (tracer_epoch2enin(last_epoch) < tracer_epoch2enin(current_epoch));
 }
 
 /**
@@ -374,7 +394,7 @@ bool tracer_detect_enin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
  * @return Whether or not there should be a BLE scan performed.
  */
 bool tracer_detect_scanin_rollover(uint32_t last_epoch, uint32_t current_epoch) {
-    return (tracer_scan_interval_number(last_epoch) < tracer_scan_interval_number(current_epoch));
+    return (tracer_epoch2scanin(last_epoch) < tracer_epoch2scanin(current_epoch));
 }
 
 /**
@@ -385,7 +405,7 @@ bool tracer_detect_scanin_rollover(uint32_t last_epoch, uint32_t current_epoch) 
  * @return Whether or not a new TEK should be generated.
  */
 bool tracer_detect_tek_rollover(uint32_t last_epoch, uint32_t current_epoch) {
-    uint32_t last_enin = tracer_en_interval_number(last_epoch), current_enin = tracer_en_interval_number(current_epoch);
+    uint32_t last_enin = tracer_epoch2enin(last_epoch), current_enin = tracer_epoch2enin(current_epoch);
     return ((current_enin > last_enin) && ((current_enin % TRACER_ENINS_PER_DAY) == 0)) || (current_enin - last_enin >= TRACER_ENINS_PER_DAY);
 }
 

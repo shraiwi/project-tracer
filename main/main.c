@@ -41,6 +41,7 @@
 
 #define SPIFFS_ROOT         "/spiffs"
 #define TEKFILE_NAME        "tekfile"
+#define MATCHFILE_NAME      "matches"
 
 #define TRACER_KEYSERVER    "10.0.0.173"
 
@@ -91,7 +92,7 @@ void http_get_cb(char * data, size_t len, void * user_data) {
 }
 
 void scan_for_peers(uint32_t epoch, uint32_t ms) {
-    uint32_t scanin = tracer_scan_interval_number(epoch);
+    uint32_t scanin = tracer_epoch2scanin(epoch);
 
     scanned_data = cvec_arrayof(tracer_datapair);
 
@@ -354,6 +355,33 @@ esp_err_t config_get_flash_state(httpd_req_t * req) {
     return ESP_OK;
 }
 
+esp_err_t config_get_exposure_handler(httpd_req_t * req) {
+    ESP_LOGI(TAG, "attempting to send matchfile to client...");
+
+    FILE * matchfile = fopen(SPIFFS_ROOT"/"MATCHFILE_NAME, "r");
+
+    if (matchfile) {
+        uint32_t match;
+        while (fread(&match, sizeof(uint32_t), 1, matchfile)) {
+            ESP_LOGI(TAG, "read 1 epoch");
+            httpd_resp_send_chunk(req, &match, sizeof(match));
+        }
+        httpd_resp_sendstr_chunk(req, NULL);
+
+        fclose(matchfile);
+    } else {
+        ESP_LOGE(TAG, "matchfile not available for opening!");
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t config_erase_flash_handler(httpd_req_t * req) {
+    ESP_ERROR_CHECK(esp_spiffs_format(NULL));
+    httpd_resp_sendstr(req, "ok");
+    return ESP_OK;
+}
+
 void config_submit_keys_http_cb(char * data, size_t len, void * user_dat) {
 
     ESP_LOGI(TAG, "got response %s.", data);
@@ -433,6 +461,8 @@ void enter_config(uint32_t time, uint8_t flags) {
     http_server_onrequest(HTTP_GET, "/scandata", config_get_scanned_wifi_handler, NULL);
     http_server_onrequest(HTTP_GET, "/getwifistatus", config_get_wifi_status_handler, NULL);
     http_server_onrequest(HTTP_GET, "/getspiffsstate", config_get_flash_state, NULL);
+    http_server_onrequest(HTTP_GET, "/matches", config_get_exposure_handler, NULL);
+    http_server_onrequest(HTTP_GET, "/formatflash", config_erase_flash_handler, NULL);
     http_server_onrequest(HTTP_POST, "/submitkeys", config_get_submit_positive_diagnosis_handler, &submit_ctx);
     http_server_onrequest(HTTP_POST, "/postwifi", config_post_wifi_data_handler, NULL);
 
@@ -501,18 +531,21 @@ void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
     DIR * root_dir = opendir(SPIFFS_ROOT);
     struct dirent * de;
 
+    FILE * matchfile = fopen(SPIFFS_ROOT"/"MATCHFILE_NAME, "a");
+
     tracer_tek stream_tek;
     //streamop_token tek_token = streamop_create_chunk_token(&stream_tek, sizeof(tracer_tek));
 
     while ((de = readdir(root_dir)) != NULL) {
-        if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
-            ESP_LOGI(TAG, "found tekfile!");
+        if (strcmp(de->d_name, TEKFILE_NAME) == 0 || strcmp(de->d_name, MATCHFILE_NAME) == 0) {
+            ESP_LOGI(TAG, "found tekfile or matchfile");
         } else {
-            uint32_t * decoded_enin = (uint32_t *)b64_decode(de->d_name, NULL);
-            uint32_t file_enin = *decoded_enin;
-            free(decoded_enin);
+            uint32_t * decoded_scanin = (uint32_t *)b64_decode(de->d_name, NULL);
+            uint32_t file_scanin = *decoded_scanin;
+            uint32_t file_epoch = tracer_scanin2epoch(file_scanin);
+            free(decoded_scanin);
 
-            ESP_LOGD(TAG, "file: %s\tderived enin: %u", de->d_name, file_enin);
+            ESP_LOGD(TAG, "file: %s\tderived scanin: %u", de->d_name, file_scanin);
 
             char ffullpath[strlen(de->d_name) + strlen(SPIFFS_ROOT"/") + 1];
             memcpy(ffullpath, SPIFFS_ROOT"/", sizeof(SPIFFS_ROOT"/"));
@@ -528,13 +561,16 @@ void test_teks(tracer_tek * tek_array, size_t tek_array_len) {
                     for (size_t i = 0; i < tek_array_len; i++) {
                         if (tracer_verify(datapair, tek_array[i], NULL, NULL)) {
                             ESP_LOGW(TAG, "tek match!");
+                            fwrite(&file_epoch, sizeof(uint32_t), 1, matchfile);
                         }
                     }
                 }
+                fclose(scanfile);
             }
-            fclose(scanfile);
         }
     }
+
+    fclose(matchfile);
 
     closedir(root_dir);
 }
@@ -557,7 +593,7 @@ void validate_tek_http_stream(char * data, size_t data_len, void * user_dat) {
     for (size_t i = 0; i < data_len; i++) {
         char c = data[i];
         if (stream_ctx->body_valid) {
-            ESP_LOGI(TAG, "body now valid.");
+            //ESP_LOGI(TAG, "body now valid.");
             if (streamop_chunk_character(&stream_ctx->chunker, c) == STREAMOP_CHUNK_OK) {
                 stream_ctx->tek_buffer[stream_ctx->tek_buffer_head++] = stream_ctx->current_tek;
                 if (stream_ctx->tek_buffer_head == 128) {
@@ -634,11 +670,11 @@ void free_spiffs(uint32_t epoch, uint32_t max_scanin_age) {
     DIR * root_dir = opendir(SPIFFS_ROOT);
     struct dirent * de;
 
-    uint32_t min_age = tracer_scan_interval_number(epoch) - max_scanin_age;
+    uint32_t min_age = tracer_epoch2scanin(epoch) - max_scanin_age;
 
     while ((de = readdir(root_dir)) != NULL) {
-        if (strcmp(de->d_name, TEKFILE_NAME) == 0) {
-            ESP_LOGI(TAG, "found tekfile!");
+        if (strcmp(de->d_name, TEKFILE_NAME) == 0 || strcmp(de->d_name, MATCHFILE_NAME) == 0) {
+            ESP_LOGI(TAG, "found tekfile or matchfile");
         } else {
             uint32_t * decoded_enin = (uint32_t *)b64_decode(de->d_name, NULL);
             uint32_t file_enin = *decoded_enin;
@@ -707,6 +743,8 @@ void app_main(void) {
     init_gpio();            // initialize GPIO
 
     adc_power_off();        // turn off adc
+
+    //esp_spiffs_format(NULL);
 
     init_spiffs();          // initialize spiffs
 

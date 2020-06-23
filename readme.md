@@ -13,3 +13,6 @@ Project Tracer is an open-source contact tracing implementation for microcontrol
     > The code responsible for the contact tracing API is completely header-only and does not have any external dependencies outside of the C standard library and mbedTLS!
 - **💲 Low Cost**
     > While the BOM cost for a single card in individidual quantities is high (about $13), bulk pricing can bring the price down to something as low as $5 per card.
+
+## Demo
+[![A demo of the Tracer API in action](http://img.youtube.com/vi/fehssvGHECE/0.jpg)](http://www.youtube.com/watch?v=fehssvGHECE "Tracer API Demo")

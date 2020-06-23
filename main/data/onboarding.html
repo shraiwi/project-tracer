@@ -4,6 +4,9 @@
     <head>
         <meta name="viewport" content="width=device-width, user-scalable=no">
         <style>
+
+            html { scroll-behavior: smooth; }
+
             *, *::before, *::after {
                 transition-duration: 250ms;
                 font-family: sans-serif;
@@ -11,7 +14,7 @@
 
             body {
                 margin: auto;
-                width: min(500px, 100%);
+                width: min(600px, 100%);
                 padding: 20px;
                 box-sizing: border-box;
             }
@@ -27,9 +30,39 @@
                 padding-right: 10px;
             }
 
-            .collapsible {
+            .sidescroller {
+                overflow: auto;
+                white-space: nowrap;
+                background: linear-gradient(90deg, white 0%, #ffffff00 3%, #ffffff00 97%, white 100%);
+                z-index: 1;
+                position: relative;
+            }
+            .sidescroller > .card {
+                display: inline-block;
+                z-index: 0;
+                position: relative;
+            }
+
+            .exposure {
+                background: linear-gradient(180deg, rgb(255, 180, 180) 0%, white 50px);
+                line-height: 150%;
+                width: 250px;
+                white-space: initial;
+                word-wrap: break-word;
+            }
+            .exposure::before {
+                content: "Potential Exposure";
+                display: block;
+                font-weight: bolder;
+                font-size: 1.17em;
                 margin-bottom: 10px;
-                margin-top: 10px;
+            }
+
+            .exposure.hint { background: linear-gradient(180deg, rgb(180, 255, 196) 0%, white 50px); }
+            .exposure.hint::before { content: "Exposure Notifications"; }
+
+            .card {
+                margin: 10px;
                 padding: 10px;
                 border-radius: 10px;
                 box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
@@ -110,7 +143,7 @@
                 top: 0;
             }
 
-            div.centercard.active {
+            .centercard.active {
                 opacity: 1;
                 transform: translateX(-50%) translateY(0%);
             }
@@ -130,7 +163,14 @@
         <div id="infocard" class="centercard">
             <b>Loading...</b>
         </div>
-        <div class="collapsible">
+        <div id="exposures" class="sidescroller">
+            <div class="exposure hint card">
+                <button onclick="getExposure()">Refresh Exposures</button>
+            </div>
+            
+            <!--<div class="exposure card">&#x23f0 From 5:10PM-5:30PM (1 day ago)</div>-->
+        </div>
+        <div class="collapsible card">
             <input id="wifi-status" type="checkbox">
             <label for="wifi-status">System Status</label>
             <div>
@@ -143,9 +183,13 @@
                     <label for="flashUsage">Flash Usage: </label>
                     <progress id="flashUsage" value="0.0" max="1.0"></progress>
                 </div>
+                <div class="cardfield" style="border: 2px solid red; padding: 5px; border-radius: 5px;">
+                    <button id="checkFlash" onclick="formatStorage()">Format Storage</button>
+                    <label>Format Storage</label>
+                </div>
             </div>
         </div>
-        <div class="collapsible">
+        <div class="collapsible card">
             <input id="wifi-config" type="checkbox" checked>
             <label for="wifi-config">WiFi Configuration</label>
             <div>
@@ -154,7 +198,7 @@
                 <button id="connectAbs" onclick="cantConnectButton()">Manual Connect</button>
             </div>
         </div>
-        <div class="collapsible">
+        <div class="collapsible card">
             <input id="positive-diagnosis" type="checkbox">
             <label for="positive-diagnosis">Positive Diagnosis</label>
             <div>
@@ -174,11 +218,16 @@
                 wifiStatus: document.getElementById("wifiStatus"),
                 flashButton: document.getElementById("checkFlash"),
                 flashStatus: document.getElementById("flashUsage"),
+                exposures: document.getElementById("exposures"),
                 flashURL: "/getspiffsstate",
                 scanURL: "/scandata",
                 postURL: "/postwifi",
+                matchesURL: "/matches",
                 submitURL: "/submitkeys",
                 wifiStatURL: "/getwifistatus",
+                formatFlashURL: "/formatflash",
+
+                mergeTime: 1,
             };
 
             let state = {
@@ -209,14 +258,16 @@
                 centercard.innerHTML = innerText;
             }
 
-            function showError(errorMessage) {
+            function showError(errorMessage, bgColor = "rgb(255, 180, 180)") {
                 console.log("error!");
                 setBusy(false);
                 let centercard = document.getElementById("infocard")
                 centercard.classList.add("active");
-                centercard.innerHTML = `<b>Error!</b><br>${errorMessage}`;
+                centercard.style.background = `linear-gradient(180deg, ${bgColor} -10px, white 70px)`;
+                centercard.innerHTML = `<b>${errorMessage}</b>`;
                 setTimeout(function () {
                     centercard.classList.remove("active");
+                    centercard.style.background = "";
                 }, 5000);
             }
 
@@ -367,6 +418,87 @@
                 let response = await (await fetch(settings.flashURL)).text();
                 let [used, total] = response.split("/");
                 settings.flashStatus.value = +used / +total;
+                setBusy(false);
+            }
+
+            function epoch2exposures(epochs) {
+                let uniqueEpochs = [...new Set(epochs)];
+                uniqueEpochs.sort((a, b) => a - b);
+                //console.log(uniqueEpochs);
+                let chunks = [];
+                let pair = [uniqueEpochs[0], null];
+                for (let i = 0; i < uniqueEpochs.length - 1; i++) {
+
+                    let current = uniqueEpochs[i];
+                    let next = uniqueEpochs[i + 1];
+
+                    let delta = Math.abs(next - current);
+
+                    //console.log(delta);
+
+                    if (delta > settings.mergeTime * 60) { // on chunk end,
+                        pair[1] = current;
+                        chunks.push(pair.slice());
+                        pair = [next, null];
+                    }
+                }
+                if (pair[1] === null) {
+                    pair[1] = uniqueEpochs[uniqueEpochs.length-1];
+                    chunks.push(pair.slice());
+                }
+
+                for (card of document.querySelectorAll("div.exposure.card:not(.hint)")) {
+                    settings.exposures.removeChild(card);
+                }
+
+                //console.log(chunks);
+
+                for (let [start, end] of chunks) {
+                    console.log(start, end);
+
+                    let [startDate, endDate] = [new Date(start * 1000), new Date(end * 1000)];
+
+                    let exposureCard = document.createElement("div");
+                    exposureCard.classList.add("exposure", "card");
+
+                    const timeSettings = { hour: "2-digit", minute: "2-digit" };
+                    const dateSettings = { weekday: "short", month: "short", day: "numeric", year: "numeric" }
+                    const shortDateSettings = { weekday: "short", month: "short", day: "numeric" }
+
+                    let dateString = startDate.getDay() === endDate.getDay() ? startDate.toLocaleDateString([], dateSettings) : `${startDate.toLocaleDateString([], shortDateSettings)} - ${endDate.toLocaleDateString([], shortDateSettings)}, ${startDate.getFullYear()}`;
+
+                    exposureCard.innerText = 
+                        `\u{23f0} ${startDate.toLocaleTimeString([], timeSettings)} - ${endDate.toLocaleTimeString([], timeSettings)}\n` +
+                        `\u{1F4C5} ${dateString}`;
+                    settings.exposures.appendChild(exposureCard);
+                }
+            }
+
+            async function getExposure(littleEndian = true) {
+                setBusy();
+                let response = new ArrayBuffer(0);
+                try {
+                    response = await (await (await fetch(settings.matchesURL)).blob()).arrayBuffer();
+                    console.log(response);
+                } catch (err) {
+                    console.log(err);
+                }
+
+                setBusy(false);
+
+                let epochArray = new Uint32Array(response);
+                console.log(epochArray);
+                if (epochArray.length === 0) {
+                    showError("No Exposures Found!", "rgb(180, 255, 196)");
+                } else {
+                    epoch2exposures(epochArray); 
+                }
+
+            }
+
+            async function formatStorage() {
+                setBusy();
+                await (await (await fetch(settings.formatFlashURL)).blob()).arrayBuffer();
                 setBusy(false);
             }
 
