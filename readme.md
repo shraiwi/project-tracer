@@ -2,6 +2,8 @@
 
 Project Tracer is an open-source contact tracing implementation for microcontrollers. At its current stage, it is designed for the ESP32, a low-power microcontroller with WiFi and Bluetooth. However, the code is written to be portable and can easily be ported to almost any platform.
 
+[Hackster.io project page](https://www.hackster.io/epicface2304/project-tracer-confidential-contact-tracing-for-the-masses-a6e2dc)
+
 ## Features
 - **🔐 Completely privacy preserving**
     > Unlike other methods of contact tracing that use machine vision or GPS, no data will ever leave the device that can be used to identify the user. All of the information used to notify others of potential exposures is randomly generated and encrypted.
