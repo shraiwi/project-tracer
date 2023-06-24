@@ -1,0 +1,5 @@
+<map id="tracer_keypair" name="tracer_keypair">
+<area shape="rect" id="node1" title="An RPIK and AEMK pair." alt="" coords="57,95,161,121"/>
+<area shape="rect" id="node2" href="$structtracer__aemk.html" title="An Associated Encrypted Metadata Key; used to encrypt Associated Encrypted Metadata." alt="" coords="5,5,100,32"/>
+<area shape="rect" id="node3" href="$structtracer__rpik.html" title="A Rolling Proximity Identifier Key; used to encrypt Rolling Proximity Identifiers." alt="" coords="125,5,207,32"/>
+</map>
